@@ -1,0 +1,18 @@
+# Optional. `docker compose up -d --build`, then create a login:
+#   docker compose exec rentbook /opt/venv/bin/python -m app.cli create-user --name YourName
+services:
+  rentbook:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Plain HTTP on a home network: cookies cannot be "Secure". Set to true behind HTTPS.
+      RENTBOOK_COOKIE_SECURE: "${RENTBOOK_COOKIE_SECURE:-false}"
+    volumes:
+      - ./data:/data          # database, uploads and backups live on the host
+    ports:
+      # Only this computer by default. To let other devices on your home Wi-Fi in, change to "8000:8000"
+      # (read the "Using it from another device" section of the README first).
+      - "127.0.0.1:8000:8000"

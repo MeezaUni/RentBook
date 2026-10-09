@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+/* Design tokens. Neutral surfaces, restrained pink/blue building accents. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --color-ink: #1c1917;
+  --color-muted: #78716c;
+  --color-line: #e7e5e4;
+  --color-canvas: #fafaf9;
+  --color-surface: #ffffff;
+  --color-pink-accent: #be185d;
+  --color-pink-soft: #fdf2f8;
+  --color-blue-accent: #1d4ed8;
+  --color-blue-soft: #eff6ff;
+  --color-brand: #0f766e;
+}
+
+html,
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+}
+
+body {
+  font-feature-settings: "tnum" 1; /* aligned figures for money columns */
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+  }
+  .print-plain {
+    box-shadow: none !important;
+    border-color: #ccc !important;
+  }
+  main {
+    padding: 0 !important;
+  }
+}
