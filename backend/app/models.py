@@ -338,6 +338,8 @@ class BankImport(Base):
     rows_error: Mapped[int] = mapped_column(Integer, default=0)
     period_start: Mapped[dt.date | None] = mapped_column(Date)
     period_end: Mapped[dt.date | None] = mapped_column(Date)
+    # The bank's own summary (period, totals, counts) and the self-checks run against it.
+    statement_checks_json: Mapped[str | None] = mapped_column(Text)
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow)
     uploaded_by: Mapped[str | None] = mapped_column(String(80))
 

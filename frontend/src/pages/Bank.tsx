@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, FileUp, Link2, Plus, RotateCcw, Split, Trash2, Undo2 } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, FileUp, Info, Link2, Plus, RotateCcw, Split, Trash2, Undo2, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ReasonDialog } from "../components/ReasonDialog";
 import {
@@ -306,9 +306,43 @@ interface Preview {
   summary: { detected: number; valid: number; credits: number; debits: number; credit_total_paise: number;
     debit_total_paise: number; already_imported: number; possible_duplicates: number; identical_rows: number;
     errors: number; potential_rent: number; period_start: string | null; period_end: string | null };
+  statement: StatementInfo;
+  checks: StatementCheck[];
   errors: { row_number: number; messages: string[] }[];
   rows: { row_number: number; txn_date: string; narration: string; reference: string | null; debit_paise: number;
     credit_paise: number; balance_paise: number | null; flags: string[]; likely_rent: boolean }[];
+}
+
+interface StatementInfo {
+  period_start: string | null; period_end: string | null; opening_paise: number | null; closing_paise: number | null;
+  debit_total_paise: number | null; credit_total_paise: number | null; debit_count: number | null; credit_count: number | null;
+}
+interface StatementCheck { code: string; status: "ok" | "warn" | "fail" | "info"; message: string; rows?: number[] }
+
+/** The importer's cross-checks against the bank's own summary (counts, totals, running balance, period). */
+function StatementChecks({ statement, checks }: { statement: StatementInfo | null; checks: StatementCheck[] }) {
+  if (!checks.length && !statement?.period_start) return null;
+  const icon = { ok: <CheckCircle2 className="size-4 text-emerald-700" />, info: <Info className="size-4 text-sky-700" />,
+    warn: <AlertTriangle className="size-4 text-amber-700" />, fail: <XCircle className="size-4 text-red-700" /> };
+  const label = { ok: "Passed", info: "Note", warn: "Check", fail: "Problem" };
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <div className="mb-1.5 text-sm font-semibold">Statement checks
+        {statement?.period_start && <span className="ml-2 font-normal text-muted">Statement period {formatDate(statement.period_start)} – {formatDate(statement.period_end)}</span>}
+      </div>
+      <ul className="flex flex-col gap-1 text-sm">
+        {checks.map((c) => (
+          <li key={c.code} className="flex items-start gap-2">
+            <span className="mt-0.5 shrink-0" aria-hidden>{icon[c.status]}</span>
+            <span><span className="sr-only">{label[c.status]}: </span>{c.message}</span>
+          </li>
+        ))}
+        {!checks.some((c) => c.code === "counts") && (
+          <li className="text-xs text-muted">No bank summary block was found, so counts could not be cross-checked.</li>
+        )}
+      </ul>
+    </div>
+  );
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -496,6 +530,11 @@ function ImportWizard({ onDone }: { onDone: () => void }) {
                 <Stat label="Already imported" tone={s.already_imported ? "info" : "neutral"} value={String(s.already_imported)}
                   hint={`${s.possible_duplicates} possible duplicates · ${s.identical_rows} identical rows`} />
               </div>
+              <div className="mt-3"><StatementChecks statement={preview.statement} checks={preview.checks} /></div>
+              {preview.checks.some((c) => c.status === "fail") && (
+                <div className="mt-3"><Alert tone="error" title="The file does not fully match the bank's own summary">
+                  Some rows may be missing or mis-read. Check the column choices above before importing.</Alert></div>
+              )}
               {s.errors > 0 && (
                 <div className="mt-3">
                   <Alert tone="warn" title={`${s.errors} rows could not be read`}>
@@ -509,13 +548,14 @@ function ImportWizard({ onDone }: { onDone: () => void }) {
                   <thead><tr><th>Row</th><th>Date</th><th>Narration</th><th className="text-right">Debit</th><th className="text-right">Credit</th><th>Notes</th></tr></thead>
                   <tbody>{preview.rows.map((r) => (
                     <tr key={r.row_number} className={cx(r.flags.includes("already_imported") && "text-muted")}>
-                      <td>{r.row_number}</td><td>{formatDate(r.txn_date)}</td>
+                      <td>{r.row_number}</td><td className="whitespace-nowrap">{formatDate(r.txn_date)}</td>
                       <td className="max-w-md truncate font-mono text-xs" title={r.narration}>{r.narration}</td>
                       <td className="text-right">{r.debit_paise ? <Money paise={r.debit_paise} /> : ""}</td>
                       <td className="text-right">{r.credit_paise ? <Money paise={r.credit_paise} className="text-emerald-700" /> : ""}</td>
                       <td className="text-xs">
                         {r.flags.includes("already_imported") && "Already imported. "}
                         {r.flags.includes("possible_duplicate") && <span className="text-amber-800">Possible duplicate. </span>}
+                        {r.flags.includes("outside_statement_period") && <span className="text-sky-800">Dated outside statement period. </span>}
                         {r.flags.includes("identical_rows_in_file") && <span className="text-amber-800">Repeated row. </span>}
                         {r.likely_rent && <span className="text-emerald-800">Looks like rent.</span>}
                       </td>
@@ -548,7 +588,8 @@ function ImportWizard({ onDone }: { onDone: () => void }) {
 // ----------------------------------------------------------------- history
 
 interface ImportRow { id: number; original_name: string; uploaded_at: string; uploaded_by: string | null; rows_total: number;
-  rows_new: number; rows_duplicate: number; rows_error: number; period_start: string | null; period_end: string | null; document_id: number | null }
+  rows_new: number; rows_duplicate: number; rows_error: number; period_start: string | null; period_end: string | null; document_id: number | null;
+  statement: StatementInfo | null; checks: StatementCheck[] }
 
 function ImportHistory({ onOpen }: { onOpen: (id: number) => void }) {
   const { data, error, loading } = useApi<ImportRow[]>("/api/bank/imports");
@@ -558,13 +599,16 @@ function ImportHistory({ onOpen }: { onOpen: (id: number) => void }) {
       <ErrorNote error={error} />
       {data?.length === 0 ? <Empty>No statements imported yet.</Empty> : (
         <Table>
-          <thead><tr><th>File</th><th>Covers</th><th>Imported</th><th className="text-right">New</th><th className="text-right">Known</th><th className="text-right">Errors</th><th /></tr></thead>
+          <thead><tr><th>File</th><th>Covers</th><th>Imported</th><th className="text-right">New</th><th className="text-right">Known</th><th className="text-right">Errors</th><th>Checks</th><th /></tr></thead>
           <tbody>{data?.map((i) => (
             <tr key={i.id}>
               <td className="font-medium">{i.original_name}</td>
               <td>{formatDate(i.period_start)} – {formatDate(i.period_end)}</td>
               <td>{formatDateTime(i.uploaded_at)}<div className="text-xs text-muted">{i.uploaded_by}</div></td>
               <td className="text-right">{i.rows_new}</td><td className="text-right">{i.rows_duplicate}</td><td className="text-right">{i.rows_error}</td>
+              <td>{i.checks.length === 0 ? <span className="text-xs text-muted">—</span>
+                : i.checks.some((c) => c.status === "fail") ? <span className="inline-flex items-center gap-1 text-xs text-red-800"><XCircle className="size-3.5" />Does not match summary</span>
+                : <span className="inline-flex items-center gap-1 text-xs text-emerald-800"><CheckCircle2 className="size-3.5" />Matches summary</span>}</td>
               <td className="text-right">
                 <Button size="sm" onClick={() => onOpen(i.id)}>Open</Button>
                 {i.document_id && <Button size="sm" variant="ghost" onClick={() => download(`/api/documents/${i.document_id}/file?download=true`, i.original_name)}>File</Button>}
@@ -587,6 +631,7 @@ function ImportDetail({ id, onBack }: { id: number; onBack: () => void }) {
       <div><Button size="sm" onClick={onBack}>← All imports</Button></div>
       <h2 className="text-lg font-semibold">{data.import.original_name}</h2>
       <SummaryStats s={data.summary} />
+      <StatementChecks statement={data.import.statement} checks={data.import.checks} />
       <Card title="Transactions in this statement">
         <Table>
           <thead><tr><th>Date</th><th>Narration</th><th className="text-right">Debit</th><th className="text-right">Credit</th><th>Status</th><th>Allocated to</th></tr></thead>

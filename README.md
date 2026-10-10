@@ -78,7 +78,7 @@ API docs are at <http://127.0.0.1:8000/api/docs> outside production.
 ## 5. Tests
 
 ```powershell
-cd backend;  uv run pytest           # 87 tests: rent, bank, maintenance, cash, security, backups, migrations
+cd backend;  uv run pytest           # 100 tests: rent, bank (incl. HDFC legacy-XLS layout), maintenance, cash, security, backups, migrations
 cd frontend; npm test                # 9 tests: money parsing, payment form workflows, status badges
 cd frontend; npm run typecheck
 ```
@@ -126,12 +126,21 @@ Tests use their own temporary database with made-up names, never your data.
 **Bank Reconciliation → Import statement**: choose the CSV/XLSX/XLS downloaded from HDFC NetBanking.
 
 1. Columns are detected automatically (you can change them, choose a sheet, and save the layout).
-2. Review the preview: counts, totals, rows already imported, unreadable rows.
+   The account-holder block at the top of the file (name, address, account and customer numbers) is never sent back to the browser.
+2. Review the preview: counts, totals, rows already imported, unreadable rows, and **Statement checks**. The importer reads the bank's own summary at the end of the file (period, opening/closing balance, total debits/credits, Dr/Cr counts) and confirms:
+   - the number of debits and credits matches the summary;
+   - both totals match the summary;
+   - opening − debits + credits = closing;
+   - every row's closing balance follows on from the previous row.
+
+   A failure means a row is missing or a column is mapped wrongly. Fix the mapping before importing.
 3. Import, then go to **Review credits**. Each credit gets a suggestion (strong / possible / ambiguous / no match / possible duplicate) with the reasons. **Nothing is marked paid until you review and confirm.**
 
 You can split one credit across months or flats, hold the extra as credit, mark it **not rent**, link it to a payment you already entered by hand, or leave it for later.
 
-Re-importing the same or an overlapping statement never creates duplicates. Each row is identified by date, narration, reference, amounts and closing balance. If a statement has no balance column, identical rows in one file are flagged for you to check.
+**Rows dated just outside the statement period.** HDFC lists transactions by *value date*. A statement for 1 Jul–30 Sep can therefore contain a row dated 30 Jun (value date 1 Jul), or an interest credit dated 1 Oct (value date 30 Sep). These are real entries, so they are **imported, not dropped**, and marked "dated outside statement period". If the neighbouring statement also contains the same entry, it is recognised as a duplicate. A row whose value date is *also* outside the period is imported with a warning so you can check it.
+
+Re-importing the same or an overlapping statement never creates duplicates, even when one month was downloaded as XLS and the next as CSV. Each row is identified by date, narration, reference, amounts and closing balance. If a statement has no balance column, identical rows in one file are flagged for you to check.
 
 ## 7. Backups and restore
 
@@ -152,13 +161,47 @@ Re-importing the same or an overlapping statement never creates duplicates. Each
 
 ## 8. Docker (optional)
 
+Tested with Docker 29.7 / Compose v5.5. Run these from the project folder:
+
 ```powershell
-docker compose up -d --build
-docker compose exec rentbook /opt/venv/bin/python -m app.cli create-user --name "Your Name"
+docker compose up -d --build                                           # build and start (http://127.0.0.1:8000)
+docker compose exec rentbook python -m app.cli create-user --name "Your Name"   # once per family member
+docker compose ps                                                      # should show "(healthy)"
+docker compose logs -f rentbook                                        # follow the logs (Ctrl+C to stop following)
+docker compose stop                                                    # stop; `docker compose start` to resume
+docker compose down                                                    # stop and remove the container; data is kept
 ```
 
-Data is stored in `./data` on the host. The default port binding is `127.0.0.1:8000` (this computer only).
-The Docker setup is included but was **not built during development**, because Docker was not running on the build machine. The plain Python setup above is the tested path.
+**Where the data lives.** The database, uploaded documents and backups are in the named Docker volume `rent_rentbook-data`, mounted at `/data`, not inside the container.
+- Restarts, `docker compose down` / `up`, and rebuilding after an update all keep the data.
+- **Never run `docker compose down -v`**: `-v` deletes the volume, which means all records.
+- The Docker copy and the non-Docker copy (§2–3, folder `data/`) are separate databases. Use one or the other.
+
+**Settings.** The data location is fixed in `docker-compose.yml`, so a `.env` file cannot move the database into the disposable container. On start-up the container:
+1. applies any pending migrations, after making an automatic `pre-migration` backup;
+2. never resets existing data.
+
+Production mode is on: secure session settings apply, and API docs are hidden. Set `RENTBOOK_PORT` to use a port other than 8000.
+
+**Backups with Docker.**
+
+```powershell
+docker compose exec rentbook python -m app.cli backup                 # or Settings -> Backup in the app
+docker compose cp rentbook:/data/backups/. ./docker-backups/          # copy all backup zips into the docker-backups folder (git-ignored)
+```
+
+**Restore with Docker** (replace the file name):
+
+```powershell
+docker compose cp ./docker-backups/rentbook-backup-XXXX.zip rentbook:/data/backups/   # only if it is not already in the volume
+docker compose stop
+docker compose run --rm rentbook python -m app.cli restore /data/backups/rentbook-backup-XXXX.zip --yes
+docker compose start
+```
+
+The restore keeps a `before-restore` backup of what it replaced.
+
+> Using Git Bash instead of PowerShell? Prefix `docker compose exec/run` commands with `MSYS_NO_PATHCONV=1`, or Git Bash rewrites the `/data/...` paths.
 
 ## 9. Security notes
 
@@ -206,7 +249,7 @@ data/      your database, uploads and backups (created on first run, never commi
 
 ## 13. Known limitations
 
-- **Statement formats**: CSV, XLSX and genuine XLS are supported. Some banks export "XLS" files that are really HTML. Re-save those as XLSX/CSV, or download CSV from NetBanking. PDF statements are not read.
+- **Statement formats**: CSV, XLSX and genuine XLS are supported. HDFC's legacy `.xls` NetBanking export has been validated against a real statement: all rows read, counts and balances reconciled. Some banks export "XLS" files that are really HTML. Re-save those as XLSX/CSV, or download CSV from NetBanking. PDF statements are not read.
 - **Identical rows without a balance column**: if two truly identical transactions appear on the same day *and* the statement has no closing-balance column, an overlapping statement that cuts between them could hide the second one. Such rows are flagged; HDFC statements include a balance, which prevents this.
 - **Placeholders**: flat labels (P-G1 … B-3) are temporary; rename them in Settings.
 - **PostgreSQL** is supported by the code (SQLAlchemy), but the built-in backup button is SQLite-only and the PostgreSQL driver is not installed by default.

@@ -80,6 +80,9 @@ class Prepared:
     rows: list[bank_parse.ParsedRow]
     content_type: str
     sha256: str
+    info: bank_parse.StatementInfo
+    checks: list[dict]
+    table_end: int | None
 
 
 def prepare(data: bytes, filename: str, sheet: str | None, mapping: dict | None) -> Prepared:
@@ -96,10 +99,15 @@ def prepare(data: bytes, filename: str, sheet: str | None, mapping: dict | None)
         bank_parse.validate_mapping(mapping, ncols)
     except DomainError:
         mapping_ok = False
+    info, checks, table_end = bank_parse.StatementInfo(), [], None
     if mapping_ok:
         parsed = bank_parse.parse_rows(table.rows, mapping)
+        if parsed:
+            table_end = max(r.row_number for r in parsed)  # 1-based row number == 0-based index after it
+            info = bank_parse.extract_statement_info(table.rows, mapping.get("header_row"), table_end)
+            checks = bank_parse.statement_checks(parsed, info)
     mapping["valid"] = mapping_ok
-    return Prepared(table, mapping, parsed, ctype, sha)
+    return Prepared(table, mapping, parsed, ctype, sha, info, checks, table_end)
 
 
 def _existing_by_fp(db: Session, fps: list[str]) -> dict[str, BankTransaction]:
@@ -125,7 +133,8 @@ def preview(db: Session, data: bytes, filename: str, sheet: str | None, mapping:
     previous = db.scalars(select(BankImport).where(BankImport.file_sha256 == p.sha256)).all()
     header_row = p.mapping.get("header_row")
     header = [str(c) if c is not None else "" for c in p.table.rows[header_row]] if header_row is not None else []
-    raw_preview = [[_cellstr(c) for c in row] for row in p.table.rows[:40]]
+    # The account-holder block above the table (and masked footer details) never leave the server.
+    raw_preview = bank_parse.redact_preview_rows(p.table.rows[:40], header_row, p.table_end, _cellstr)
     good = [r for r in p.rows if not r.errors]
     fps = fingerprints(good)
     existing = _existing_by_fp(db, [fp for fp, _ in fps])
@@ -148,6 +157,8 @@ def preview(db: Session, data: bytes, filename: str, sheet: str | None, mapping:
         if collision:
             flags.append("identical_rows_in_file")
             counts["collisions"] += 1
+        if bank_parse.is_outside_period(r, p.info):
+            flags.append("outside_statement_period")
         if r.credit_paise:
             counts["credits"] += 1
             counts["credit_total"] += r.credit_paise
@@ -190,6 +201,8 @@ def preview(db: Session, data: bytes, filename: str, sheet: str | None, mapping:
             "period_start": min(dates).isoformat() if dates else None,
             "period_end": max(dates).isoformat() if dates else None,
         },
+        "statement": p.info.as_dict(),
+        "checks": p.checks,
         "errors": [{"row_number": r.row_number, "messages": r.errors} for r in p.rows if r.errors][:200],
         "rows": out_rows[:1000],
     }
@@ -225,6 +238,7 @@ def commit(db: Session, data: bytes, filename: str, sheet: str | None, mapping: 
     imp = BankImport(original_name=doc.original_name, document_id=doc.id, file_sha256=p.sha256,
                      sheet_name=p.table.sheet, mapping_json=json.dumps(clean_mapping), uploaded_by=actor,
                      rows_total=len(p.rows), rows_error=len(bad),
+                     statement_checks_json=json.dumps({"statement": p.info.as_dict(), "checks": p.checks}),
                      period_start=min(r.txn_date for r in good), period_end=max(r.txn_date for r in good))
     db.add(imp)
     db.flush()
@@ -728,4 +742,5 @@ def list_imports(db: Session) -> list[dict]:
         "rows_duplicate": i.rows_duplicate, "rows_error": i.rows_error, "sheet_name": i.sheet_name,
         "period_start": i.period_start.isoformat() if i.period_start else None,
         "period_end": i.period_end.isoformat() if i.period_end else None, "document_id": i.document_id,
+        **(json.loads(i.statement_checks_json) if i.statement_checks_json else {"statement": None, "checks": []}),
     } for i in db.scalars(select(BankImport).order_by(BankImport.uploaded_at.desc()))]

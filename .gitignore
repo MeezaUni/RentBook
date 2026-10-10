@@ -29,3 +29,11 @@ Thumbs.db
 .playwright-mcp/
 .remember/
 *.tsbuildinfo
+
+# Bank statements and exports contain account details: never commit them.
+# (Test fixtures are generated in code; no statement files belong in this repository.)
+*.xls
+*.xlsx
+*.csv
+Acct Statement*
+docker-backups/

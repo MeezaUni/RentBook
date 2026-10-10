@@ -26,7 +26,7 @@ licence before redistributing a modified copy.
 | typing-extensions | 4.16.0 | PSF-2.0 | Transitive runtime dependency |
 | SQLite | (bundled with Python) | Public domain | Database engine |
 
-Development and test only: pytest (MIT), httpx (BSD-3-Clause).
+Development and test only: pytest (MIT), httpx (BSD-3-Clause), xlwt 1.3.0 (BSD; writes synthetic legacy-XLS test fixtures).
 
 ## Frontend (JavaScript / TypeScript)
 

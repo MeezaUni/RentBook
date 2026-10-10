@@ -1,18 +1,38 @@
-# Optional. `docker compose up -d --build`, then create a login:
-#   docker compose exec rentbook /opt/venv/bin/python -m app.cli create-user --name YourName
+# Rentbook with Docker.
+#   Start:   docker compose up -d --build
+#   Login:   docker compose exec rentbook python -m app.cli create-user --name "Your Name"
+#   Stop:    docker compose down          (keeps your data; NEVER add -v unless you mean to delete it)
 services:
   rentbook:
     build: .
+    image: rentbook:latest
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
+      # Pinned here so a value in .env (meant for running without Docker) can never move the
+      # database into the disposable container filesystem. `environment` overrides `env_file`.
+      RENTBOOK_ENV: production
+      RENTBOOK_DATA_DIR: /data
+      RENTBOOK_DATABASE_URL: sqlite:////data/rentbook.db
+      RENTBOOK_FRONTEND_DIST: /app/frontend/dist
       # Plain HTTP on a home network: cookies cannot be "Secure". Set to true behind HTTPS.
       RENTBOOK_COOKIE_SECURE: "${RENTBOOK_COOKIE_SECURE:-false}"
     volumes:
-      - ./data:/data          # database, uploads and backups live on the host
+      # Database, uploaded documents and backups live in a named Docker volume, outside the
+      # container. A named volume (not a Windows folder bind mount) keeps SQLite locking reliable.
+      - rentbook-data:/data
     ports:
-      # Only this computer by default. To let other devices on your home Wi-Fi in, change to "8000:8000"
-      # (read the "Using it from another device" section of the README first).
-      - "127.0.0.1:8000:8000"
+      # Only this computer by default. To let other devices on your home Wi-Fi in, use
+      # "0.0.0.0:8000:8000" (read the security section of the README first).
+      - "127.0.0.1:${RENTBOOK_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  rentbook-data:

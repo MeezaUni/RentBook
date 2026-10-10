@@ -238,7 +238,8 @@ def _clean_reference(v: Any) -> str | None:
 def parse_rows(rows: list[list[Any]], mapping: dict) -> list[ParsedRow]:
     cols = mapping["columns"]
     fmt = mapping.get("date_format") or "auto"
-    start = (mapping.get("header_row") or -1) + 1
+    header_row = mapping.get("header_row")
+    start = 0 if header_row is None else header_row + 1  # header on row 0 is common in CSV exports
     out: list[ParsedRow] = []
     for i in range(start, len(rows)):
         row = rows[i]
@@ -291,4 +292,170 @@ def parse_rows(rows: list[list[Any]], mapping: dict) -> list[ParsedRow]:
         if not pr.narration and not pr.errors:
             pr.errors.append("Missing narration")
         out.append(pr)
+    return out
+
+
+# ------------------------------------------------------------------ statement self-checks
+#
+# Banks print their own summary (period, opening/closing balance, debit/credit totals and
+# counts) around the transaction table. Reading it lets the importer prove that every row was
+# captured. Labels are matched generically; nothing about a particular statement is hardcoded.
+
+_PERIOD_RE = re.compile(
+    r"from\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s*to\s*:?\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", re.I)
+SUMMARY_LABELS = {
+    "opening balance": "opening_paise", "opening bal": "opening_paise",
+    "closing balance": "closing_paise", "closing bal": "closing_paise",
+    "debits": "debit_total_paise", "total debits": "debit_total_paise", "withdrawals": "debit_total_paise",
+    "credits": "credit_total_paise", "total credits": "credit_total_paise", "deposits": "credit_total_paise",
+    "dr count": "debit_count", "debit count": "debit_count", "cr count": "credit_count", "credit count": "credit_count",
+}
+
+
+@dataclass
+class StatementInfo:
+    period_start: dt.date | None = None
+    period_end: dt.date | None = None
+    opening_paise: int | None = None
+    closing_paise: int | None = None
+    debit_total_paise: int | None = None
+    credit_total_paise: int | None = None
+    debit_count: int | None = None
+    credit_count: int | None = None
+
+    def as_dict(self) -> dict:
+        return {k: (v.isoformat() if isinstance(v, dt.date) else v) for k, v in self.__dict__.items()}
+
+
+def _parse_any_date(text: str) -> dt.date | None:
+    for f in ("%d/%m/%Y", "%d/%m/%y", "%d-%m-%Y", "%d-%m-%y"):
+        try:
+            return dt.datetime.strptime(text, f).date()
+        except ValueError:
+            continue
+    return None
+
+
+def extract_statement_info(rows: list[list[Any]], header_row: int | None, table_end: int) -> StatementInfo:
+    """Read the stated period (before the table) and the summary block (after the table).
+
+    `table_end` is the 0-based index just past the last transaction row, so the
+    transaction header's own "Closing Balance" column is never mistaken for the summary.
+    """
+    info = StatementInfo()
+    for row in rows[: header_row if header_row is not None else 80]:
+        for c in row:
+            if isinstance(c, str):
+                m = _PERIOD_RE.search(c)
+                if m:
+                    info.period_start, info.period_end = _parse_any_date(m.group(1)), _parse_any_date(m.group(2))
+                    break
+        if info.period_start:
+            break
+    for i in range(table_end, len(rows) - 1):
+        for j, c in enumerate(rows[i]):
+            key = SUMMARY_LABELS.get(_norm_header(c).rstrip(":").strip())
+            if not key or getattr(info, key) is not None:
+                continue
+            below = rows[i + 1][j] if j < len(rows[i + 1]) else None
+            try:
+                if key.endswith("_count"):
+                    if isinstance(below, (int, float)) and float(below).is_integer():
+                        setattr(info, key, int(below))
+                    elif isinstance(below, str) and below.strip().isdigit():
+                        setattr(info, key, int(below.strip()))
+                else:
+                    setattr(info, key, parse_rupees(below))
+            except MoneyParseError:
+                pass
+    return info
+
+
+def _check(code: str, status: str, message: str, **extra) -> dict:
+    return {"code": code, "status": status, "message": message, **extra}
+
+
+def statement_checks(parsed: list[ParsedRow], info: StatementInfo) -> list[dict]:
+    """Cross-check parsed rows against the bank's own summary. status: ok | warn | fail | info."""
+    good = [r for r in parsed if not r.errors]
+    checks: list[dict] = []
+    bad = len(parsed) - len(good)
+    if bad:
+        checks.append(_check("unreadable_rows", "fail", f"{bad} rows could not be read."))
+    debits = [r for r in good if r.debit_paise]
+    credits = [r for r in good if r.credit_paise]
+    if info.debit_count is not None and info.credit_count is not None:
+        ok = (len(debits), len(credits)) == (info.debit_count, info.credit_count)
+        checks.append(_check(
+            "counts", "ok" if ok else "fail",
+            f"Statement summary lists {info.debit_count} debits and {info.credit_count} credits; "
+            f"read {len(debits)} debits and {len(credits)} credits."))
+    if info.debit_total_paise is not None and info.credit_total_paise is not None:
+        d, c = sum(r.debit_paise for r in debits), sum(r.credit_paise for r in credits)
+        ok = (d, c) == (info.debit_total_paise, info.credit_total_paise)
+        checks.append(_check("totals", "ok" if ok else "fail",
+                             "Debit and credit totals match the statement summary." if ok else
+                             "Debit/credit totals differ from the statement summary."))
+    if None not in (info.opening_paise, info.closing_paise, info.debit_total_paise, info.credit_total_paise):
+        ok = info.opening_paise - info.debit_total_paise + info.credit_total_paise == info.closing_paise
+        checks.append(_check("balance_equation", "ok" if ok else "warn",
+                             "Opening balance - debits + credits = closing balance." if ok else
+                             "The statement summary's own balances do not add up."))
+    if good and all(r.balance_paise is not None for r in good):
+        breaks = [b.row_number for a, b in zip(good, good[1:])
+                  if a.balance_paise - b.debit_paise + b.credit_paise != b.balance_paise]
+        first = good[0]
+        if info.opening_paise is not None and \
+                info.opening_paise - first.debit_paise + first.credit_paise != first.balance_paise:
+            breaks.insert(0, first.row_number)
+        if info.closing_paise is not None and good[-1].balance_paise != info.closing_paise:
+            breaks.append(good[-1].row_number)
+        checks.append(_check(
+            "running_balance", "ok" if not breaks else "fail",
+            "Every row's closing balance follows from the previous one." if not breaks else
+            f"Closing balance does not follow on at rows {', '.join(map(str, breaks[:8]))}; rows may be missing "
+            "or mis-read.", rows=breaks[:50]))
+    if info.period_start and info.period_end:
+        outside = [r for r in good if not info.period_start <= r.txn_date <= info.period_end]
+        if outside:
+            by_value = [r for r in outside if r.value_date and info.period_start <= r.value_date <= info.period_end]
+            other = len(outside) - len(by_value)
+            msg = (f"{len(outside)} row(s) are dated just outside the statement period "
+                   f"({info.period_start:%d %b %Y} to {info.period_end:%d %b %Y})")
+            msg += (" but their value date is inside it (banks list transactions by value date). They are real "
+                    "statement entries and are imported; the same entry in a neighbouring statement is recognised "
+                    "as a duplicate." if not other else
+                    f"; {other} of them also have a value date outside the period. They are imported; check them.")
+            checks.append(_check("boundary_rows", "info" if not other else "warn", msg,
+                                 rows=[r.row_number for r in outside]))
+    return checks
+
+
+def is_outside_period(r: ParsedRow, info: StatementInfo) -> bool:
+    return bool(info.period_start and info.period_end and r.txn_date
+                and not info.period_start <= r.txn_date <= info.period_end)
+
+
+# ------------------------------------------------------------------ privacy for previews
+
+_LONG_DIGITS = re.compile(r"\d{4,}")
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+")
+HIDDEN = "[hidden]"
+
+
+def redact_preview_rows(rows: list[list[Any]], header_row: int | None, table_end: int | None, fmt) -> list[list[str]]:
+    """Raw rows for the column-mapping screen without the account-holder details.
+
+    Rows above a detected header (name, address, account and customer numbers...) are hidden.
+    Footer rows after the table, or every row when no header was detected, have long digit
+    runs and e-mail addresses masked, so the layout stays recognisable for choosing the header.
+    """
+    out = []
+    for i, row in enumerate(rows):
+        cells = [fmt(c) for c in row]
+        if header_row is not None and i < header_row:
+            cells = [HIDDEN if c.strip() else "" for c in cells]
+        elif header_row is None or (table_end is not None and i >= table_end):
+            cells = [_EMAIL.sub("[email]", _LONG_DIGITS.sub(lambda m: "#" * len(m.group()), c)) for c in cells]
+        out.append(cells)
     return out
