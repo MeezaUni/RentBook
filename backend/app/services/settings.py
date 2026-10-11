@@ -21,14 +21,20 @@ BASELINE_PERIOD = "2000-01"
 DEFAULT_RATES = {"maintenance_target": 15_000_00, "caretaker_salary": 15_000_00}
 
 BILLING_POLICIES = {
-    "due_date_in_tenancy": "Full month's rent if the tenancy covers that month's due date",
+    "due_date_in_tenancy": "Full month's rent if the tenant lived there on the due day within that month",
     "any_overlap": "Full month's rent if the tenant occupied the flat on any day of the month",
     "full_months_only": "Only fully occupied months are billed automatically; partial months are added manually",
     "prorated_daily": "Partial months are prorated by days occupied",
 }
 
+RENT_DUE_MONTHS = {
+    "next_month": "Next month (September's rent due in October)",
+    "same_month": "Same month (September's rent due in September)",
+}
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "billing_policy": "due_date_in_tenancy",
+    "rent_due_month": "next_month",
     "overdue_grace_days": 0,
     "payment_method_labels": {"cash": "Cash", "online": "Online Transfer"},
     "report_preferences": {"include_pending_in_reports": True, "default_export_format": "xlsx"},
@@ -36,7 +42,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 # Settings that change financial calculations are audited.
-CALCULATION_SETTINGS = {"billing_policy", "overdue_grace_days"}
+CALCULATION_SETTINGS = {"billing_policy", "rent_due_month", "overdue_grace_days"}
 
 
 def get_setting(db: Session, key: str) -> Any:
@@ -58,6 +64,8 @@ def set_setting(db: Session, key: str, value: Any, actor: str) -> None:
         raise DomainError("unknown_setting", f"Unknown setting '{key}'")
     if key == "billing_policy" and value not in BILLING_POLICIES:
         raise DomainError("invalid_setting", "Unknown billing policy")
+    if key == "rent_due_month" and value not in RENT_DUE_MONTHS:
+        raise DomainError("invalid_setting", "Unknown rent due month")
     if key == "overdue_grace_days" and (not isinstance(value, int) or not 0 <= value <= 60):
         raise DomainError("invalid_setting", "Grace days must be between 0 and 60")
     if key == "payment_method_labels":

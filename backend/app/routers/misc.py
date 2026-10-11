@@ -28,6 +28,7 @@ def get_settings(db: Session = Depends(get_db)):
     return {
         "settings": svc.all_settings(db),
         "billing_policies": svc.BILLING_POLICIES,
+        "rent_due_months": svc.RENT_DUE_MONTHS,
         "rate_keys": svc.RATE_KEYS,
         "rates": [{"id": r.id, "key": r.key, "amount_paise": r.amount_paise, "effective_period": r.effective_period,
                    "note": r.note, "created_by": r.created_by} for r in svc.list_rates(db)],

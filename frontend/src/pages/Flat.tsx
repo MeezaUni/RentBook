@@ -51,6 +51,8 @@ export function FlatPage() {
   const rentDue = data.dues.find((d) => d.kind === "rent");
   const ownerNow = data.owner_occupancies.find((o) => !o.end_date);
   const allDues = [...data.due_history];
+  // Record payments against the oldest unpaid month first (e.g. September's rent paid in October).
+  const payPeriod = data.arrears.find((d) => d.kind === "rent")?.period ?? period;
 
   return (
     <>
@@ -228,7 +230,7 @@ export function FlatPage() {
       </div>
 
       {dialog === "pay" && tenancy && (
-        <PaymentForm tenancy={tenancy} defaultPeriod={period} onClose={close}
+        <PaymentForm tenancy={tenancy} defaultPeriod={payPeriod} onClose={close}
           onSaved={(p) => { close(); setSaved(`Saved ${formatINR(p.amount_paise)} (${p.status === "confirmed" ? "confirmed" : "pending verification"}).`); reload(); }} />
       )}
       {dialog === "add" && <AddTenancyForm flatId={data.flat.id} flatLabel={data.flat.label} onClose={close} onDone={reload} />}

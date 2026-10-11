@@ -204,11 +204,11 @@ def test_migrations_match_models():
 def test_dashboard_reflects_database(client, db):
     ten = make_tenancy(db)
     client.post("/api/payments", json={"tenancy_id": ten.id, "received_date": "2025-11-02",
-                                       "amount_paise": 4_000_00, "method": "cash", "rent_period": "2025-11"})
+                                       "amount_paise": 4_000_00, "method": "cash", "rent_period": "2025-10"})
     client.post("/api/payments", json={"tenancy_id": ten.id, "received_date": "2025-11-03",
                                        "amount_paise": 6_000_00, "method": "online", "status": "pending",
-                                       "rent_period": "2025-11"})
-    d = client.get("/api/dashboard?period=2025-11").json()
+                                       "rent_period": "2025-10"})
+    d = client.get("/api/dashboard?period=2025-11").json()  # shows October's rent, collected in November
     assert d["rent"]["expected_paise"] == 10_000_00
     assert d["rent"]["confirmed_paise"] == 4_000_00 and d["rent"]["pending_paise"] == 6_000_00
     assert d["rent"]["outstanding_paise"] == 6_000_00

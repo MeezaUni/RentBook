@@ -103,8 +103,9 @@ function BuildingEditor({ b, save }: { b: Building; save: (fn: () => Promise<unk
 // ------------------------------------------------------------------- money
 
 interface SettingsResp {
-  settings: { billing_policy: string; overdue_grace_days: number; payment_method_labels: { cash: string; online: string } };
+  settings: { billing_policy: string; rent_due_month: string; overdue_grace_days: number; payment_method_labels: { cash: string; online: string } };
   billing_policies: Record<string, string>;
+  rent_due_months: Record<string, string>;
   rate_keys: Record<string, string>;
   rates: { id: number; key: string; amount_paise: number; effective_period: string; note: string | null; created_by: string | null }[];
 }
@@ -148,13 +149,14 @@ function MoneySettings() {
           <Button type="submit">Save</Button>
         </form>
       </Card>
-      <RulesCard st={st} policies={data.billing_policies} run={s.run} reload={reload} />
+      <RulesCard st={st} policies={data.billing_policies} dueMonths={data.rent_due_months} run={s.run} reload={reload} />
     </div>
   );
 }
 
-function RulesCard({ st, policies, run, reload }: { st: SettingsResp["settings"]; policies: Record<string, string>;
-  run: (fn: () => Promise<unknown>) => void; reload: () => void }) {
+function RulesCard({ st, policies, dueMonths, run, reload }: { st: SettingsResp["settings"]; policies: Record<string, string>;
+  dueMonths: Record<string, string>; run: (fn: () => Promise<unknown>) => void; reload: () => void }) {
+  const [dueMonth, setDueMonth] = useState(st.rent_due_month);
   const [policy, setPolicy] = useState(st.billing_policy);
   const [grace, setGrace] = useState(String(st.overdue_grace_days));
   const [cash, setCash] = useState(st.payment_method_labels.cash);
@@ -162,6 +164,13 @@ function RulesCard({ st, policies, run, reload }: { st: SettingsResp["settings"]
   return (
     <Card title="Rent rules">
       <div className="flex flex-col gap-3">
+        <Field label="When is a month's rent due?" hint="Each tenant's due day is set on their flat page. Applies to rent months generated from now on.">
+          {(id) => (
+            <select id={id} className={inputCls} value={dueMonth} onChange={(e) => setDueMonth(e.target.value)}>
+              {Object.entries(dueMonths).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          )}
+        </Field>
         <Field label="Part-month rule (default for all tenancies)" hint="Applies to rent months generated from now on. Individual tenancies can override it.">
           {(id) => (
             <select id={id} className={inputCls} value={policy} onChange={(e) => setPolicy(e.target.value)}>
@@ -178,6 +187,7 @@ function RulesCard({ st, policies, run, reload }: { st: SettingsResp["settings"]
         </div>
         <div>
           <Button onClick={() => run(async () => {
+            await api.put("/api/settings", { key: "rent_due_month", value: dueMonth });
             await api.put("/api/settings", { key: "billing_policy", value: policy });
             await api.put("/api/settings", { key: "overdue_grace_days", value: Number(grace) });
             await api.put("/api/settings", { key: "payment_method_labels", value: { cash, online } });
