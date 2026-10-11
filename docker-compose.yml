@@ -17,8 +17,12 @@ services:
       RENTBOOK_DATA_DIR: /data
       RENTBOOK_DATABASE_URL: sqlite:////data/rentbook.db
       RENTBOOK_FRONTEND_DIST: /app/frontend/dist
-      # Plain HTTP on a home network: cookies cannot be "Secure". Set to true behind HTTPS.
-      RENTBOOK_COOKIE_SECURE: "${RENTBOOK_COOKIE_SECURE:-false}"
+      # Login cookies only travel over HTTPS (Tailscale Funnel / Serve). Browsers still allow them
+      # on http://127.0.0.1. Set to false only to log in over plain http from another device.
+      RENTBOOK_COOKIE_SECURE: "${RENTBOOK_COOKIE_SECURE:-true}"
+      # Requests reach the container from Docker's gateway (172.x) or localhost. Believe the client
+      # address these proxies forward, so failed-PIN limits apply per visitor, not to everyone.
+      RENTBOOK_FORWARDED_ALLOW_IPS: "${RENTBOOK_FORWARDED_ALLOW_IPS:-127.0.0.1,172.16.0.0/12}"
     volumes:
       # Database, uploaded documents and backups live in a named Docker volume, outside the
       # container. A named volume (not a Windows folder bind mount) keeps SQLite locking reliable.

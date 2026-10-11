@@ -48,6 +48,8 @@ class Settings:
     frontend_dist: Path = field(default_factory=lambda: REPO_ROOT / "frontend" / "dist")
     login_max_failures: int = 5
     login_window_minutes: int = 15
+    # Proxies (IPs/CIDRs) whose X-Forwarded-For is believed. Empty: only the direct peer counts.
+    forwarded_allow_ips: str = ""
     log_level: str = "INFO"
 
     @property
@@ -89,6 +91,7 @@ def load_settings() -> Settings:
     s.login_window_minutes = int(
         os.environ.get("RENTBOOK_LOGIN_WINDOW_MINUTES", s.login_window_minutes)
     )
+    s.forwarded_allow_ips = os.environ.get("RENTBOOK_FORWARDED_ALLOW_IPS", "").strip()
     s.log_level = os.environ.get("RENTBOOK_LOG_LEVEL", s.log_level)
     return s
 

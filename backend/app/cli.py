@@ -52,7 +52,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "serve":
         import uvicorn
 
-        uvicorn.run("app.main:app", host=args.host, port=args.port, proxy_headers=False)
+        from .config import settings
+
+        # Behind a proxy (Tailscale Funnel -> Docker) every request arrives from the proxy's address,
+        # so per-visitor login limits need the client address the proxy forwards. Uvicorn takes the
+        # right-most address not in this list, so a value the visitor adds themselves is ignored.
+        trusted = settings.forwarded_allow_ips
+        uvicorn.run("app.main:app", host=args.host, port=args.port, proxy_headers=bool(trusted),
+                    forwarded_allow_ips=trusted or None)
         return
 
     from .db import SessionLocal

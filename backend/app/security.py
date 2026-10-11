@@ -59,8 +59,8 @@ def _token_hash(token: str) -> str:
 
 
 def client_ip(request: Request) -> str:
-    # Only the direct peer is trusted. If deployed behind a reverse proxy, configure
-    # uvicorn --proxy-headers / --forwarded-allow-ips so request.client is correct.
+    # The direct peer, or the forwarded client address when RENTBOOK_FORWARDED_ALLOW_IPS
+    # names the proxy (uvicorn rewrites request.client; see cli.serve).
     return request.client.host if request.client else "unknown"
 
 

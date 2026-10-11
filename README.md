@@ -212,6 +212,9 @@ The restore keeps a `before-restore` backup of what it replaced.
 - **Logins**: a name plus a 6–12 digit PIN.
   - PINs are stored only as Argon2id hashes.
   - After 5 failed attempts from one address, login is blocked for 15 minutes.
+    Behind a proxy (Docker, Tailscale Funnel/Serve, Caddy), set `RENTBOOK_FORWARDED_ALLOW_IPS` to the proxy's
+    addresses so the visitor's own address is used. Otherwise every visitor shares the proxy's address, and one
+    stranger's wrong guesses lock everyone out. `docker-compose.yml` sets this, and secure cookies, for you.
   - Sessions are random server-side tokens in an HttpOnly, SameSite=Strict cookie, and every change needs a CSRF token.
   - Every `/api` route except health and login requires a session, including document downloads.
   - Users are created from the command line, so there is no "first visitor becomes admin" screen. Add or change logins in Settings → Login & PIN.
@@ -222,6 +225,8 @@ The restore keeps a `before-restore` backup of what it replaced.
 - **Home network (plain http)**:
   - Anyone on your Wi-Fi can reach the login page, and traffic is not encrypted on the network.
   - Use a strong Wi-Fi password and keep the firewall rule set to Private networks.
+- **Tailscale Funnel makes the login page public on the internet.** Only your PINs protect the data, so use
+  long ones (8–12 digits). Use `tailscale serve` instead of `funnel` if only devices on your tailnet need access.
 - **Do not forward the port on your router.** For access away from home, use a private VPN such as WireGuard or Tailscale's open-source client, or put the app behind an HTTPS reverse proxy (for example Caddy) with `RENTBOOK_ENV=production` and `RENTBOOK_COOKIE_SECURE=true`.
 - **Logs**: no request bodies, PINs or bank details are logged. Error responses to the browser are generic.
 
