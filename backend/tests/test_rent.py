@@ -66,7 +66,7 @@ def test_late_payment_credits_original_month(db):
     p = pay(db, ten, 10_000_00, "2025-10", on=D(2025, 11, 8))
     d = due(db, ten, "2025-10")
     assert d["status"] == "paid"
-    assert d["due_date"] == "2025-10-05"  # original due date preserved
+    assert d["due_date"] == "2025-11-05"  # October's rent falls due in November; date preserved
     desc = rent.describe_payment(p)
     assert desc["received_date"] == "2025-11-08"
     assert desc["allocations"][0]["period"] == "2025-10" and desc["allocations"][0]["is_late"] is True
@@ -262,7 +262,7 @@ def test_billing_start_prevents_fictional_old_arrears(db):
 
 def test_due_day_31_clamps_to_month_end(db):
     ten = make_tenancy(db, due_day=31, billing_start="2025-09")
-    assert due(db, ten, "2025-09")["due_date"] == "2025-09-30"
+    assert due(db, ten, "2025-10")["due_date"] == "2025-11-30"  # October's rent, due in November
 
 
 def test_policy_due_date_in_tenancy_for_mid_month_move_in(db):

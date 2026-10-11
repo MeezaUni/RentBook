@@ -67,9 +67,12 @@ def iter_periods(start: str, end: str):
         p = add_months(p, 1)
 
 
-def due_date_for(period: str, due_day: int) -> dt.date:
-    """Due day clamped to the month's length (31 -> 30 Apr / 28 Feb)."""
-    y, m = parse_period(period)
+def due_date_for(period: str, due_day: int, months_later: int = 0) -> dt.date:
+    """Due day clamped to the month's length (31 -> 30 Apr / 28 Feb).
+
+    `months_later=1` puts the date in the following month: rent paid in arrears.
+    """
+    y, m = parse_period(add_months(period, months_later))
     return dt.date(y, m, min(due_day, calendar.monthrange(y, m)[1]))
 
 

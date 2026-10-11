@@ -103,10 +103,14 @@ Tests use their own temporary database with made-up names, never your data.
 ### How the money rules work
 
 - **Rent due**: one record per tenancy per month, priced from the rent in force that month.
+  - By default a month's rent is due in the **following** month on the tenant's due day: with due day 10,
+    September's rent is due on 10 October and is overdue from 11 October. To have it due in the same month
+    instead, change **When is a month's rent due?** in Settings → Rates & rules. The dashboard for October
+    then shows September's rent, because that is what is collected in October.
   - Changing the rent "from November" never alters October or earlier.
-  - Part-month rules are configurable (Settings → Rates & rules). The default charges a month when the tenancy covers its due date. Prorating is used only if you choose it.
+  - Part-month rules are configurable (Settings → Rates & rules). The default charges a month when the tenant lived there on the due day within that month, so someone who leaves on 30 September still owes September's rent. Prorating is used only if you choose it.
 - **Outstanding** = rent due − *confirmed* payments. *Pending verification* payments are shown but never counted.
-- **Late payments**: the rent month and the date received are separate. "October rent paid on 8 November" settles October and is flagged as late.
+- **Late payments**: the rent month and the date received are separate. With due day 5, "October rent paid on 8 November" settles October and is flagged as late.
 - **Extra money** is never placed silently. You choose one of:
   - next month(s);
   - older arrears;

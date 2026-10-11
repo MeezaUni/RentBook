@@ -234,6 +234,18 @@ def edit_tenant(tenant_id: int, body: TenantIn, actor: Actor = Depends(require_u
     return describe_tenant(t)
 
 
+class TenantDeleteIn(BaseModel):
+    reason: str = Field(max_length=2000)
+
+
+@router.post("/tenants/{tenant_id}/delete")
+def remove_tenant(tenant_id: int, body: TenantDeleteIn, actor: Actor = Depends(require_user),
+                  db: Session = Depends(get_db)):
+    svc.delete_tenant(db, tenant_id, body.reason, actor.name)
+    db.commit()
+    return {"ok": True}
+
+
 class AliasIn(BaseModel):
     alias: str = Field(max_length=160)
     kind: str = Field(default="sender_name", max_length=16)

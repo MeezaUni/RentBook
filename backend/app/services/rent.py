@@ -60,6 +60,11 @@ def policy_for(db: Session, t: Tenancy) -> str:
     return t.billing_policy or get_setting(db, "billing_policy")
 
 
+def due_months_later(db: Session) -> int:
+    """1 when a month's rent falls due in the following month (paid in arrears), else 0."""
+    return 1 if get_setting(db, "rent_due_month") == "next_month" else 0
+
+
 def is_billable(db: Session, t: Tenancy, period: str) -> tuple[bool, int | None]:
     """Whether `period` generates a rent due for tenancy `t`, and for how much."""
     if period < t.billing_start_period:
@@ -72,6 +77,8 @@ def is_billable(db: Session, t: Tenancy, period: str) -> tuple[bool, int | None]
         return False, None
     policy = policy_for(db, t)
     if policy == "due_date_in_tenancy":
+        # The due day *within* the month, even when payment falls due the month after:
+        # someone who leaves on 30 Sep still owes September's rent, payable in October.
         return tenancy_covers(t, due_date_for(period, t.rent_due_day)), rent
     if policy == "any_overlap":
         return True, rent
@@ -103,6 +110,7 @@ def ensure_dues(db: Session, up_to_period: str, tenancy_ids: list[int] | None = 
         ).all()
     )
     created = 0
+    later = due_months_later(db)
     for t in tenancies:
         last = up_to if t.end_date is None else min(up_to, period_of(t.end_date))
         for p in iter_periods(t.billing_start_period, last):
@@ -114,7 +122,7 @@ def ensure_dues(db: Session, up_to_period: str, tenancy_ids: list[int] | None = 
             try:
                 with db.begin_nested():
                     db.add(RentDue(tenancy_id=t.id, period=p, kind="rent", amount_paise=amount,
-                                   due_date=due_date_for(p, t.rent_due_day)))
+                                   due_date=due_date_for(p, t.rent_due_day, later)))
                 created += 1
             except IntegrityError:  # created concurrently by another request
                 pass
@@ -600,7 +608,7 @@ def add_manual_due(db: Session, tenancy_id: int, period: str, amount_paise: int,
         raise DomainError("outside_tenancy", "That month is outside this tenancy")
     if db.scalar(select(RentDue).where(RentDue.tenancy_id == t.id, RentDue.period == period, RentDue.kind == "rent")):
         raise Conflict("due_exists", "Rent for that month already exists. Edit its amount instead.")
-    due_date = max(due_date_for(period, t.rent_due_day), t.start_date)
+    due_date = max(due_date_for(period, t.rent_due_day, due_months_later(db)), t.start_date)
     due = RentDue(tenancy_id=t.id, period=period, kind="rent", amount_paise=amount_paise, due_date=due_date,
                   amount_overridden=True, override_reason=reason)
     db.add(due)

@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import BankTransaction, RentAllocation, RentDue, RentPayment
-from ..periods import current_period, first_day, last_day, validate_period
+from ..periods import add_months, current_period, first_day, last_day, validate_period
 from ..security import require_user
 from ..services import cash as cash_svc
 from ..services import maintenance as mnt
+from ..services.rent import due_months_later
 from .properties import buildings_overview
 from .rent import ledger
 
@@ -47,13 +48,15 @@ def collected_for_period_by_method(db: Session, period: str) -> dict:
 @router.get("/dashboard")
 def dashboard(period: str | None = None, db: Session = Depends(get_db)):
     period = validate_period(period or current_period())
-    led = ledger(db, period)
-    buildings = buildings_overview(db, period)
+    # The rent being collected this month: last month's when rent is paid the month after.
+    rent_period = add_months(period, -due_months_later(db))
+    led = ledger(db, rent_period)
     occ = {"tenant_occupied": 0, "vacant": 0, "owner_occupied": 0}
-    per_building = []
-    for b in buildings:
+    for b in buildings_overview(db, period):
         for f in b["flats"]:
             occ[f["occupancy"]] += 1
+    per_building = []
+    for b in buildings_overview(db, rent_period):
         per_building.append({
             "id": b["id"], "name": b["name"], "color": b["color"], "code": b["code"],
             "flat_count": len(b["flats"]),
@@ -77,8 +80,9 @@ def dashboard(period: str | None = None, db: Session = Depends(get_db)):
     pending_payments = db.scalar(select(func.count(RentPayment.id)).where(RentPayment.status == "pending")) or 0
     data = {
         "period": period,
+        "rent_period": rent_period,
         "rent": led["summary"],
-        "collected_for_period_by_method": collected_for_period_by_method(db, period),
+        "collected_for_period_by_method": collected_for_period_by_method(db, rent_period),
         "received_in_month": received_in_month(db, period),
         "occupancy": occ,
         "buildings": per_building,

@@ -1,6 +1,7 @@
 import { Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
+import { ReasonDialog } from "../components/ReasonDialog";
 import { Alert, Button, Card, Empty, ErrorNote, Field, inputCls, Loading, Modal, PageHeader, StatusBadge } from "../components/ui";
 import { api } from "../lib/api";
 import { useApi } from "../lib/hooks";
@@ -36,6 +37,7 @@ export function TenantsPage() {
 function TenantCard({ t, onEdit, onChange }: { t: Tenant; onEdit: () => void; onChange: () => void }) {
   const [alias, setAlias] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   async function addAlias(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -49,7 +51,10 @@ function TenantCard({ t, onEdit, onChange }: { t: Tenant; onEdit: () => void; on
   }
   return (
     <Card title={<span className="flex items-center gap-2">{t.full_name}<StatusBadge status={t.status === "former" ? "ended" : t.status === "active" ? "active" : "vacant"} /></span>}
-      actions={<Button size="sm" onClick={onEdit}><Pencil className="size-3.5" /> Edit</Button>}>
+      actions={<>
+        <Button size="sm" onClick={onEdit}><Pencil className="size-3.5" /> Edit</Button>
+        <Button size="sm" variant="danger" onClick={() => setDeleting(true)}><Trash2 className="size-3.5" /> Delete</Button>
+      </>}>
       <div className="flex flex-col gap-3 text-sm">
         <div className="text-muted">
           {[t.phone, t.email, t.preferred_payment_method && `pays by ${t.preferred_payment_method}`].filter(Boolean).join(" · ") || "No contact details"}
@@ -81,6 +86,13 @@ function TenantCard({ t, onEdit, onChange }: { t: Tenant; onEdit: () => void; on
           {error && <p className="mt-1 text-xs text-red-700">{error}</p>}
         </div>
       </div>
+      {deleting && (
+        <ReasonDialog title={`Delete ${t.full_name}?`} danger confirmLabel="Delete tenant"
+          description={<>This is for tenants added by mistake. It removes them along with their tenancies and bank sender names.
+            If any rent has been recorded for them, end their tenancy from the flat page instead, so your history stays correct.</>}
+          onSubmit={(reason) => api.post(`/api/tenants/${t.id}/delete`, { reason }).then(onChange)}
+          onClose={() => setDeleting(false)} />
+      )}
     </Card>
   );
 }

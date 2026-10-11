@@ -9,6 +9,8 @@ import { BuildingChoice } from "./Buildings";
 
 interface Dashboard {
   period: string;
+  /** The month whose rent is collected in `period` (the previous month when rent is paid the month after). */
+  rent_period: string;
   rent: {
     expected_paise: number; confirmed_paise: number; pending_paise: number; outstanding_paise: number;
     overdue_paise: number; arrears_paise: number;
@@ -35,7 +37,8 @@ interface Dashboard {
 export function DashboardPage() {
   const [period, setPeriod] = usePeriod();
   const { data, error, loading } = useApi<Dashboard>(`/api/dashboard${qs({ period })}`);
-  const { data: bdata } = useApi<{ buildings: Building[] }>(`/api/buildings${qs({ period })}`);
+  // Building tiles show the same rent month as the figures below.
+  const { data: bdata } = useApi<{ buildings: Building[] }>(data ? `/api/buildings${qs({ period: data.rent_period })}` : null);
   const m = `?month=${period}`;
   return (
     <>
@@ -45,7 +48,7 @@ export function DashboardPage() {
       {loading && !data && <Loading />}
       {data && (
         <div className="flex flex-col gap-5">
-          {bdata && <BuildingChoice buildings={bdata.buildings} period={period} />}
+          {bdata && data && <BuildingChoice buildings={bdata.buildings} period={data.rent_period} />}
 
           {(data.bank_review.count > 0 || data.pending_payments > 0 || data.maintenance_discrepancies > 0) && (
             <div className="grid gap-2 sm:grid-cols-3">
@@ -71,9 +74,9 @@ export function DashboardPage() {
           )}
 
           <div>
-            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Rent — {formatPeriod(period)}</h2>
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Rent for {formatPeriod(data.rent_period)}{data.rent_period !== period && <span className="normal-case font-normal"> · collected in {formatPeriod(period)}</span>}</h2>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Expected" value={formatINR(data.rent.expected_paise)} hint="Rent due this month" />
+              <Stat label="Expected" value={formatINR(data.rent.expected_paise)} hint={data.rent_period !== period ? `${formatPeriod(data.rent_period)}'s rent, due in ${formatPeriod(period)}` : "Rent due this month"} />
               <Stat label="Confirmed received" tone="good" value={formatINR(data.rent.confirmed_paise)}
                 hint={data.rent.pending_paise > 0 ? `+ ${formatINR(data.rent.pending_paise)} awaiting check` : "Confirmed only"} />
               <Stat label="Outstanding" tone={data.rent.outstanding_paise ? "warn" : "neutral"} value={formatINR(data.rent.outstanding_paise)}
@@ -108,7 +111,7 @@ export function DashboardPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <Card title="Collection by building">
+            <Card title={`Collection by building — ${formatPeriod(data.rent_period)} rent`}>
               <div className="flex flex-col gap-3">
                 {data.buildings.map((b) => {
                   const pct = b.expected_paise ? Math.min(100, Math.round((b.confirmed_paise / b.expected_paise) * 100)) : 0;
@@ -130,7 +133,7 @@ export function DashboardPage() {
             </Card>
             <Card title="Flats with money outstanding">
               {data.outstanding_flats.length === 0 ? (
-                <Alert tone="success">Nothing outstanding for this month or earlier.</Alert>
+                <Alert tone="success">Nothing outstanding that is due by now.</Alert>
               ) : (
                 <ul className="divide-y divide-line">
                   {data.outstanding_flats.map((f) => (
