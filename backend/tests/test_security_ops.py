@@ -60,6 +60,33 @@ def test_login_wrong_pin_and_rate_limit(anon_client, db):
     assert r.status_code == 429  # locked out even with the correct PIN
 
 
+def test_rate_limit_key_groups_ipv6_by_64():
+    from app.security import rate_limit_key
+
+    assert rate_limit_key("2401:4900:c961:ccd4:a970:f6e5:3282:45fb") == "2401:4900:c961:ccd4::/64"
+    assert rate_limit_key("2401:4900:c961:ccd4::1") == "2401:4900:c961:ccd4::/64"
+    assert rate_limit_key("::ffff:203.0.113.7") == "203.0.113.7"
+    assert rate_limit_key("203.0.113.7") == "203.0.113.7"
+    assert rate_limit_key("unknown") == "unknown"
+
+
+def test_changing_ipv6_address_does_not_reset_the_limit(db):
+    from app.errors import DomainError
+    from app.security import AuthError, login
+
+    create_user(db, "Tester", TEST_PIN)
+    db.commit()
+    for i in range(5):  # a new address inside the same /64 for every guess
+        with pytest.raises(AuthError):
+            login(db, f"2401:4900:c961:ccd4::{i + 1:x}", "Tester", "000001")
+    with pytest.raises(DomainError) as e:
+        login(db, "2401:4900:c961:ccd4:ffff::9", "Tester", TEST_PIN)
+    assert e.value.code == "too_many_attempts"
+    # Another subscriber's /64 and IPv4 visitors are unaffected.
+    assert login(db, "2401:4900:c961:aaaa::1", "Tester", TEST_PIN).user.name == "Tester"
+    assert login(db, "203.0.113.7", "Tester", TEST_PIN).user.name == "Tester"
+
+
 def test_unknown_user_gets_same_error(anon_client):
     r = anon_client.post("/api/auth/login", json={"name": "Nobody", "pin": "739104"})
     assert r.status_code == 401 and r.json()["error"]["message"] == "Name or PIN is incorrect."

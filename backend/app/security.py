@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 from dataclasses import dataclass
@@ -64,6 +65,23 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def rate_limit_key(ip: str) -> str:
+    """The address login limits are counted against.
+
+    One IPv6 subscriber (a phone, a home line) is normally given a whole /64 and can pick any address
+    in it, so the /64 counts as one visitor. Otherwise each new address would get fresh guesses.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip[:64]
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped:
+            return str(addr.ipv4_mapped)
+        return str(ipaddress.IPv6Network((addr, 64), strict=False))
+    return str(addr)
+
+
 def _check_rate_limit(db: Session, ip: str) -> None:
     window_start = utcnow() - dt.timedelta(minutes=settings.login_window_minutes)
     failures = db.scalar(
@@ -90,6 +108,7 @@ class LoginResult:
 
 
 def login(db: Session, ip: str, name: str, pin: str) -> LoginResult:
+    ip = rate_limit_key(ip)
     _check_rate_limit(db, ip)
     user = db.scalar(
         select(User).where(func.lower(User.name) == (name or "").strip().lower(), User.is_active)

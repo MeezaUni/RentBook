@@ -211,7 +211,8 @@ The restore keeps a `before-restore` backup of what it replaced.
 
 - **Logins**: a name plus a 6–12 digit PIN.
   - PINs are stored only as Argon2id hashes.
-  - After 5 failed attempts from one address, login is blocked for 15 minutes.
+  - After 5 failed attempts from one address, login is blocked for 15 minutes. An IPv6 visitor's whole /64
+    block counts as one address, because a phone or home line can switch freely within it.
     Behind a proxy (Docker, Tailscale Funnel/Serve, Caddy), set `RENTBOOK_FORWARDED_ALLOW_IPS` to the proxy's
     addresses so the visitor's own address is used. Otherwise every visitor shares the proxy's address, and one
     stranger's wrong guesses lock everyone out. `docker-compose.yml` sets this, and secure cookies, for you.
