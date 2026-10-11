@@ -12,7 +12,10 @@ from .. import audit
 from ..errors import Conflict, DomainError, NotFound
 from ..models import (
     Building,
+    Document,
+    DocumentLink,
     Flat,
+    OpeningBalance,
     OwnerOccupancy,
     RentAllocation,
     RentDue,
@@ -197,6 +200,62 @@ def update_tenant(db: Session, tenant_id: int, data: dict, actor: str) -> Tenant
         setattr(t, k, v)
     audit.record(db, actor, "tenant.update", "tenant", t.id, before, audit.snapshot(t, TENANT_FIELDS))
     return t
+
+
+def delete_tenant(db: Session, tenant_id: int, reason: str, actor: str) -> None:
+    """Remove a tenant entered by mistake, with their tenancies, dues and sender names.
+
+    Refused once any money has been recorded against them: deleting would rewrite rent
+    history. Such tenants are moved out (end the tenancy) instead and stay as "former".
+    """
+    t = get_or_404(db, Tenant, tenant_id, "Tenant")
+    reason = (reason or "").strip()
+    if len(reason) < 3:
+        raise DomainError("reason_required", "Please give a reason for deleting this tenant")
+    tenancy_ids = [x.id for x in t.tenancies]
+    if tenancy_ids:
+        payments = db.scalar(select(func.count()).select_from(RentPayment)
+                             .where(RentPayment.tenancy_id.in_(tenancy_ids)))
+        openings = db.scalar(select(func.count()).select_from(OpeningBalance)
+                             .where(OpeningBalance.tenancy_id.in_(tenancy_ids)))
+        if payments or openings:
+            raise Conflict(
+                "tenant_has_money_records",
+                f"{t.full_name} has payments or opening balances recorded, so deleting them would change "
+                "your rent history. End their tenancy from the flat page instead; they will stay listed "
+                "as a former tenant.",
+                {"payments": payments, "opening_balances": openings},
+            )
+    docs = db.scalar(select(func.count()).select_from(DocumentLink)
+                     .join(Document, Document.id == DocumentLink.document_id)
+                     .where(DocumentLink.entity_type == "tenant", DocumentLink.entity_id == t.id,
+                            Document.deleted_at.is_(None)))
+    if docs:
+        raise Conflict("tenant_has_documents",
+                       f"{t.full_name} has {docs} document(s) attached. Delete those first.", {"documents": docs})
+
+    before = {
+        **audit.snapshot(t, TENANT_FIELDS),
+        "tenancies": [{**audit.snapshot(x), "rent_terms": [audit.snapshot(r) for r in x.rent_terms]}
+                      for x in t.tenancies],
+        "aliases": [audit.snapshot(a) for a in t.aliases],
+    }
+    if tenancy_ids:
+        for model in (RentDue, RentTerm):
+            for row in db.scalars(select(model).where(model.tenancy_id.in_(tenancy_ids))):
+                db.delete(row)
+        db.flush()
+    for x in list(t.tenancies):
+        db.delete(x)
+    for a in list(t.aliases):
+        db.delete(a)
+    for link in db.scalars(select(DocumentLink).where(DocumentLink.entity_type == "tenant",
+                                                      DocumentLink.entity_id == t.id)):
+        db.delete(link)  # only links to already-deleted documents remain here
+    db.flush()
+    db.delete(t)
+    db.flush()
+    audit.record(db, actor, "tenant.delete", "tenant", tenant_id, before, None, reason)
 
 
 # ---------------------------------------------------------------- tenancies
