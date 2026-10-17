@@ -94,3 +94,16 @@ def test_buildings_show_this_months_tenants_with_last_months_rent(client, db):
     assert flats["P-G1"]["period_status"] is None  # nothing due for October
     assert flats["P-G2"]["period_due_paise"] == 10_000_00  # October's rent, due 10 November
     assert flats["P-G2"]["tenancy"]["id"] == old.id
+
+
+def test_changing_due_day_moves_unpaid_months(client, db):
+    paid = make_tenancy(db, due_day=1)
+    pay(db, paid, 10_000_00, "2025-09", on=D(2025, 10, 1))
+    due(db, paid, "2025-10")
+    r = client.patch(f"/api/tenancies/{paid.id}", json={"rent_due_day": 10})
+    assert r.status_code == 200
+    db.expire_all()
+    assert due(db, paid, "2025-10")["due_date"] == "2025-11-10"  # unpaid: moved to the new day
+    assert due(db, paid, "2025-09")["due_date"] == "2025-10-01"  # fully paid: keeps its date
+    ledger = client.get("/api/rent/ledger?period=2025-10").json()
+    assert [d["due_date"] for d in ledger["dues"]] == ["2025-11-10"]

@@ -60,7 +60,7 @@ export function AddTenancyForm({ flatId, flatLabel, onClose, onDone }: {
   const [method, setMethod] = useState("");
   const [start, setStart] = useState(todayISO());
   const [rent, setRent] = useState("");
-  const [dueDay, setDueDay] = useState("1");
+  const [dueDay, setDueDay] = useState("10");
   const [trackFrom, setTrackFrom] = useState(currentPeriod());
   const [policy, setPolicy] = useState("");
   const rentPaise = parseRupees(rent);
@@ -174,7 +174,7 @@ export function EditTenancyForm({ tenancy, onClose, onDone }: { tenancy: Tenancy
   }), () => { onDone(); onClose(); });
   return (
     <FormModal title="Tenancy settings" onClose={onClose} {...s}>
-      <Field label="Rent due on day" hint="Applies to months not yet generated.">
+      <Field label="Rent due on day" hint="Also moves the due date of every month not yet fully paid. Paid months keep theirs.">
         {(id) => <input id={id} type="number" min={1} max={31} className={inputCls} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />}
       </Field>
       <Field label="Part-month rule">

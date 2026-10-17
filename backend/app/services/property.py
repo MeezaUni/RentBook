@@ -352,20 +352,32 @@ def end_tenancy(db: Session, tenancy_id: int, end_date: dt.date, reason: str | N
 
 
 def update_tenancy(db: Session, tenancy_id: int, data: dict, actor: str) -> Tenancy:
-    """Edit due day / notes / billing policy. Affects dues generated from now on only."""
+    """Edit due day / notes / billing policy.
+
+    A new due day also moves the due dates of months not yet fully paid; the billing policy
+    applies to months generated from now on.
+    """
+    from .rent import refresh_due_dates  # local import avoids a cycle
+
     t = get_or_404(db, Tenancy, tenancy_id, "Tenancy")
     before = audit.snapshot(t)
+    redated: list[str] = []
     if "rent_due_day" in data and data["rent_due_day"] is not None:
         if not 1 <= int(data["rent_due_day"]) <= 31:
             raise DomainError("invalid_due_day", "Rent due day must be between 1 and 31")
-        t.rent_due_day = int(data["rent_due_day"])
+        if int(data["rent_due_day"]) != t.rent_due_day:
+            t.rent_due_day = int(data["rent_due_day"])
+            redated = refresh_due_dates(db, t)
     if "billing_policy" in data:
         if data["billing_policy"] is not None and data["billing_policy"] not in BILLING_POLICIES:
             raise DomainError("invalid_policy", "Unknown billing policy")
         t.billing_policy = data["billing_policy"]
     if "notes" in data:
         t.notes = (data["notes"] or "").strip() or None
-    audit.record(db, actor, "tenancy.update", "tenancy", t.id, before, audit.snapshot(t))
+    after = audit.snapshot(t)
+    if redated:
+        after["redated_periods"] = redated
+    audit.record(db, actor, "tenancy.update", "tenancy", t.id, before, after)
     return t
 
 

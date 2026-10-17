@@ -131,6 +131,27 @@ def ensure_dues(db: Session, up_to_period: str, tenancy_ids: list[int] | None = 
     return created
 
 
+def refresh_due_dates(db: Session, t: Tenancy) -> list[str]:
+    """Re-date the tenancy's rent months that are not fully paid, after its due day changed.
+
+    Fully paid months keep their date, so whether they were paid on time does not change.
+    Returns the months whose due date moved.
+    """
+    dues = db.scalars(select(RentDue).where(RentDue.tenancy_id == t.id, RentDue.kind == "rent",
+                                            RentDue.waived_at.is_(None))).all()
+    sums = allocation_sums(db, [d.id for d in dues])
+    later = due_months_later(db)
+    moved = []
+    for d in dues:
+        if sums[d.id]["confirmed"] >= d.amount_paise:
+            continue
+        new = max(due_date_for(d.period, t.rent_due_day, later), t.start_date)
+        if new != d.due_date:
+            d.due_date = new
+            moved.append(d.period)
+    return sorted(moved)
+
+
 # ------------------------------------------------------------ due status
 
 
