@@ -17,7 +17,7 @@ interface Summary {
   family_paid_paise: number; total_expenses_paise: number; over_target_paise: number; closing_paise: number;
   by_category: { category: string; amount_paise: number }[]; expenses: Expense[]; movements: CashMovement[];
   discrepancies: Discrepancy[]; notes: string | null;
-  previous_period: string; previous_still_to_hand_over_paise: number;
+  given_before_tracking: boolean; handover_period: string; handover_still_to_give_paise: number;
 }
 
 type HistoryRow = Pick<Summary, "period" | "target_paise" | "opening_paise" | "top_up_required_paise" | "handed_over_paise" |
@@ -40,12 +40,13 @@ export function MaintenancePage() {
       {loading && !data && <Loading />}
       {data && (
         <div className="flex flex-col gap-4">
-          {data.previous_still_to_hand_over_paise > 0 && (
-            <Alert tone="info" title={`${formatPeriod(data.previous_period)}'s top-up: give him ${formatINR(data.previous_still_to_hand_over_paise)}`}>
+          {data.handover_period !== period && data.handover_still_to_give_paise > 0 && (
+            <Alert tone="info" title={`${formatPeriod(data.handover_period)}'s top-up: give him ${formatINR(data.handover_still_to_give_paise)}`}>
               <div className="flex flex-wrap items-center gap-2">
-                <span>Last month's maintenance money, if you hand it over this month.</span>
+                <span>{formatPeriod(data.handover_period)}'s maintenance money is handed over in {formatPeriod(period)}. The amount is an
+                  estimate until {formatPeriod(period)} ends: it is the target less what he is expected to still hold.</span>
                 <Button size="sm" className="no-print" onClick={() => setDialog("topupPrevious")}>
-                  <HandCoins className="size-3.5" /> Record for {formatPeriod(data.previous_period)}
+                  <HandCoins className="size-3.5" /> Record for {formatPeriod(data.handover_period)}
                 </Button>
               </div>
             </Alert>
@@ -56,17 +57,27 @@ export function MaintenancePage() {
                 <div className="text-sm text-muted">He held <b className="money text-ink">{formatINR(data.opening_paise)}</b> at the start of {formatPeriod(period)}.
                   Target {formatINR(data.target_paise)}.</div>
                 <div className="mt-1 text-xl font-semibold">
-                  {data.still_to_hand_over_paise > 0
+                  {data.given_before_tracking
+                    ? <>{formatPeriod(period)}'s top-up was handed over before these records start</>
+                    : data.still_to_hand_over_paise > 0
                     ? <>Give him <span className="money text-sky-800">{formatINR(data.still_to_hand_over_paise)}</span> for {formatPeriod(period)}</>
                     : data.top_up_required_paise === 0
                       ? <>No top-up needed this month</>
                       : <>Top-up of {formatINR(data.top_up_required_paise)} handed over ✓</>}
                 </div>
-                <div className="text-xs text-muted">Top-up required = {formatINR(data.target_paise)} − {formatINR(data.opening_paise)} = {formatINR(data.top_up_required_paise)}
-                  {data.handed_over_paise > 0 && ` · handed ${formatINR(data.handed_over_paise)} so far`}</div>
+                {data.given_before_tracking ? (
+                  <div className="text-xs text-muted">Enter the cash he held at the start of {formatPeriod(period)} under Settings → Opening balances,
+                    so later top-ups are worked out from it.</div>
+                ) : (
+                  <div className="text-xs text-muted">Top-up required = {formatINR(data.target_paise)} − {formatINR(data.opening_paise)} = {formatINR(data.top_up_required_paise)}
+                    {data.handed_over_paise > 0 && ` · handed ${formatINR(data.handed_over_paise)} so far`}</div>
+                )}
               </div>
               <div className="flex flex-wrap gap-2 no-print">
-                <Button variant="primary" onClick={() => setDialog("topup")}><HandCoins className="size-4" /> Record cash handed over for {formatPeriod(period, true)}</Button>
+                {/* When this month's money predates the records, the cash handed over now is for the next month. */}
+                <Button variant="primary" onClick={() => setDialog(data.given_before_tracking ? "topupPrevious" : "topup")}>
+                  <HandCoins className="size-4" /> Record cash handed over for {formatPeriod(data.given_before_tracking ? data.handover_period : period, true)}
+                </Button>
                 <Button onClick={() => setDialog("expense")}><Plus className="size-4" /> Record expense</Button>
                 <Button onClick={() => setDialog("count")}><Calculator className="size-4" /> Count his cash</Button>
                 <Button variant="ghost" onClick={() => setDialog("movement")}>Other movement…</Button>
@@ -157,8 +168,8 @@ export function MaintenancePage() {
           onClose={() => setDialog(null)} onDone={refresh} />
       )}
       {dialog === "topupPrevious" && data && (
-        <MovementForm initialKind="caretaker_handover" forPeriod={data.previous_period}
-          suggestedAmount={data.previous_still_to_hand_over_paise || undefined} onClose={() => setDialog(null)} onDone={refresh} />
+        <MovementForm initialKind="caretaker_handover" forPeriod={data.handover_period}
+          suggestedAmount={data.handover_still_to_give_paise || undefined} onClose={() => setDialog(null)} onDone={refresh} />
       )}
       {dialog === "movement" && <MovementForm initialKind="caretaker_return" onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === "count" && <CountForm account="caretaker_cash" onClose={() => setDialog(null)} onDone={refresh} />}

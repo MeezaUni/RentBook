@@ -47,7 +47,7 @@ from ..periods import (
     validate_period,
 )
 from .property import get_or_404, rent_for_period, tenancy_covers
-from .settings import get_setting
+from .settings import before_tracking, get_setting
 
 ACTIVE = ("pending", "confirmed")
 EXCESS_CHOICES = {"apply_to_arrears", "apply_forward", "hold_as_credit", "refund_due"}
@@ -67,7 +67,7 @@ def due_months_later(db: Session) -> int:
 
 def is_billable(db: Session, t: Tenancy, period: str) -> tuple[bool, int | None]:
     """Whether `period` generates a rent due for tenancy `t`, and for how much."""
-    if period < t.billing_start_period:
+    if period < t.billing_start_period or before_tracking(db, period):
         return False, None
     fd, ld = first_day(period), last_day(period)
     if t.start_date > ld or (t.end_date is not None and t.end_date < fd):

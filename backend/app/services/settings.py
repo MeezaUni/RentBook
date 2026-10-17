@@ -32,9 +32,21 @@ RENT_DUE_MONTHS = {
     "same_month": "Same month (September's rent due in September)",
 }
 
+# Which month's caretaker money is handed over during a month.
+HANDOVER_MONTHS = {
+    "next_month": "Next month's (in October you give November's)",
+    "same_month": "That month's (in October you give October's)",
+    "previous_month": "Last month's (in October you give September's)",
+}
+_HANDOVER_OFFSET = {"next_month": 1, "same_month": 0, "previous_month": -1}
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "billing_policy": "due_date_in_tenancy",
     "rent_due_month": "next_month",
+    # First month the app keeps records for (YYYY-MM). Nothing earlier is shown as owed. None: no limit.
+    "tracking_start_period": None,
+    "maintenance_given_for": "next_month",
+    "salary_paid_for": "next_month",
     "overdue_grace_days": 0,
     "payment_method_labels": {"cash": "Cash", "online": "Online Transfer"},
     "report_preferences": {"include_pending_in_reports": True, "default_export_format": "xlsx"},
@@ -42,7 +54,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 # Settings that change financial calculations are audited.
-CALCULATION_SETTINGS = {"billing_policy", "rent_due_month", "overdue_grace_days"}
+CALCULATION_SETTINGS = {"billing_policy", "rent_due_month", "overdue_grace_days", "tracking_start_period",
+                        "maintenance_given_for", "salary_paid_for"}
 
 
 def get_setting(db: Session, key: str) -> Any:
@@ -66,6 +79,10 @@ def set_setting(db: Session, key: str, value: Any, actor: str) -> None:
         raise DomainError("invalid_setting", "Unknown billing policy")
     if key == "rent_due_month" and value not in RENT_DUE_MONTHS:
         raise DomainError("invalid_setting", "Unknown rent due month")
+    if key in ("maintenance_given_for", "salary_paid_for") and value not in HANDOVER_MONTHS:
+        raise DomainError("invalid_setting", "Unknown month choice")
+    if key == "tracking_start_period" and value is not None:
+        validate_period(value)
     if key == "overdue_grace_days" and (not isinstance(value, int) or not 0 <= value <= 60):
         raise DomainError("invalid_setting", "Grace days must be between 0 and 60")
     if key == "payment_method_labels":
@@ -117,3 +134,18 @@ def set_rate(db: Session, key: str, amount_paise: int, effective_period: str, ac
     db.flush()
     audit.record(db, actor, "rate.set", "rate_setting", row.id, before, audit.snapshot(row))
     return row
+
+
+def handover_offset(db: Session, key: str) -> int:
+    """Months between handing money over and the month it is for: +1 when October pays for November."""
+    return _HANDOVER_OFFSET[get_setting(db, key)]
+
+
+def tracking_start(db: Session) -> str | None:
+    return get_setting(db, "tracking_start_period")
+
+
+def before_tracking(db: Session, period: str) -> bool:
+    """True for months before the app's records begin (nothing in them is shown as owed)."""
+    start = tracking_start(db)
+    return start is not None and period < start

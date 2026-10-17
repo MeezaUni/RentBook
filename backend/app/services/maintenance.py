@@ -27,7 +27,7 @@ from ..models import (
 from ..periods import add_months, current_period, first_day, last_day, period_of, today, validate_period
 from . import cash
 from .property import get_or_404
-from .settings import get_rate
+from .settings import before_tracking, get_rate, handover_offset
 
 FAMILY_METHODS = {"cash", "bank", "other"}
 
@@ -51,8 +51,16 @@ def opening_for(db: Session, period: str) -> int:
             - total(CashMovement.from_account == "caretaker_cash") - int(spent))
 
 
+def given_before_tracking(db: Session, period: str) -> bool:
+    """`period`'s top-up was due to be handed over before the app's records begin."""
+    handover_month = add_months(period, -handover_offset(db, "maintenance_given_for"))
+    return before_tracking(db, period) or before_tracking(db, handover_month)
+
+
 def still_to_give(db: Session, period: str) -> int:
     """How much of `period`'s top-up has not been handed over yet."""
+    if given_before_tracking(db, period):
+        return 0
     required = top_up_required(get_rate(db, "maintenance_target", period), opening_for(db, period))
     handed = db.scalar(select(func.coalesce(func.sum(CashMovement.amount_paise), 0)).where(
         CashMovement.status == "active", CashMovement.kind == "caretaker_handover", CashMovement.period == period)) or 0
@@ -94,7 +102,8 @@ def month_summary(db: Session, period: str) -> dict:
         "opening_paise": opening,
         "top_up_required_paise": required,
         "handed_over_paise": handed,
-        "still_to_hand_over_paise": max(0, required - handed),
+        "still_to_hand_over_paise": still_to_give(db, period),
+        "given_before_tracking": given_before_tracking(db, period),
         "other_adjustments_paise": other_net,
         "available_paise": opening + handed + other_net,
         "caretaker_spent_paise": caretaker_spent,
@@ -107,9 +116,10 @@ def month_summary(db: Session, period: str) -> dict:
         "movements": [cash.describe_movement(m) for m in moves],
         "discrepancies": discrepancies,
         "notes": note.notes if note else None,
-        # Last month's top-up is usually handed over this month; flag it while some is still owed.
-        "previous_period": add_months(period, -1),
-        "previous_still_to_hand_over_paise": still_to_give(db, add_months(period, -1)),
+        # The top-up handed over during this month (next month's when the family gives it in advance).
+        "handover_period": add_months(period, handover_offset(db, "maintenance_given_for")),
+        "handover_still_to_give_paise": still_to_give(
+            db, add_months(period, handover_offset(db, "maintenance_given_for"))),
     }
 
 
@@ -143,7 +153,7 @@ def history(db: Session, months: int = 12) -> list[dict]:
     first = min(known) if known else cur
     out = []
     for i in range(months - 1, -1, -1):
-        if add_months(cur, -i) < first:
+        if add_months(cur, -i) < first or before_tracking(db, add_months(cur, -i)):
             continue
         s = month_summary(db, add_months(cur, -i))
         out.append({k: s[k] for k in ("period", "target_paise", "opening_paise", "top_up_required_paise",
@@ -278,14 +288,27 @@ def upsert_category(db: Session, category_id: int | None, name: str, is_active: 
 SALARY_METHODS = {"bank", "cash", "other"}
 
 
+def salary_paid_in(db: Session, period: str) -> str:
+    """The month in which `period`'s salary is paid (October for November's, when paid in advance)."""
+    return add_months(period, -handover_offset(db, "salary_paid_for"))
+
+
+def salary_paid_during(db: Session, period: str) -> str:
+    """The salary month paid during `period` (November's in October, when paid in advance)."""
+    return add_months(period, handover_offset(db, "salary_paid_for"))
+
+
 def salary_month(db: Session, period: str) -> dict:
     validate_period(period)
     expected = get_rate(db, "caretaker_salary", period)
+    not_tracked = before_tracking(db, period) or before_tracking(db, salary_paid_in(db, period))
     pays = db.scalars(select(SalaryPayment).where(SalaryPayment.salary_month == period)
                       .order_by(SalaryPayment.payment_date, SalaryPayment.id)).all()
     confirmed = sum(p.amount_paise for p in pays if p.status == "confirmed")
     pending = sum(p.amount_paise for p in pays if p.status == "pending")
-    if confirmed >= expected:
+    if not_tracked and not pays:
+        status = "not_tracked"
+    elif confirmed >= expected:
         status = "paid"
     elif pending > 0:
         status = "pending_verification"
@@ -298,9 +321,12 @@ def salary_month(db: Session, period: str) -> dict:
         "expected_paise": expected,
         "confirmed_paise": confirmed,
         "pending_paise": pending,
-        "outstanding_paise": max(0, expected - confirmed),
+        "outstanding_paise": 0 if status == "not_tracked" else max(0, expected - confirmed),
         "overpaid_paise": max(0, confirmed - expected),
         "status": status,
+        "paid_in_period": salary_paid_in(db, period),
+        # The salary paid during this month (next month's when it is paid in advance).
+        "pay_now_period": salary_paid_during(db, period),
         "payments": [describe_salary(p) for p in pays],
     }
 

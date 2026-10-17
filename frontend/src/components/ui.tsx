@@ -102,6 +102,7 @@ const STATUS: Record<string, { label: string; cls: string; Icon: typeof CheckCir
   pending_verification: { label: "Pending check", cls: "bg-sky-50 text-sky-800 border-sky-200", Icon: Clock },
   pending: { label: "Pending check", cls: "bg-sky-50 text-sky-800 border-sky-200", Icon: Clock },
   unreviewed: { label: "Needs review", cls: "bg-sky-50 text-sky-800 border-sky-200", Icon: Clock },
+  not_tracked: { label: "Before records", cls: "bg-stone-100 text-stone-600 border-stone-200", Icon: MinusCircle },
   no_due: { label: "Nothing due yet", cls: "bg-emerald-50 text-emerald-800 border-emerald-200", Icon: CheckCircle2 },
   unpaid: { label: "Unpaid", cls: "bg-stone-100 text-stone-700 border-stone-200", Icon: MinusCircle },
   overdue: { label: "Overdue", cls: "bg-red-50 text-red-800 border-red-200", Icon: AlertTriangle },

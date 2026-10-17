@@ -1,7 +1,7 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { currentPeriod, formatDate, formatINR, paiseToInput, parseRupees, todayISO } from "../lib/money";
+import { addMonths, currentPeriod, formatDate, formatINR, paiseToInput, parseRupees, todayISO } from "../lib/money";
 import { Alert, Button, Field, inputCls, Modal } from "./ui";
 
 export interface Receipt {
@@ -34,10 +34,12 @@ export const ACCOUNT_LABELS: Record<string, string> = {
   family_cash: "Family cash", caretaker_cash: "Caretaker's maintenance cash", external: "Outside / bank",
 };
 
-/** Record a cash movement, optionally linked to the tenant cash receipts it came from. */
 /** Kinds whose cash counts towards a maintenance month, which can differ from the date it moved. */
 const FOR_MONTH_KINDS = new Set(["caretaker_handover", "caretaker_return"]);
+/** Months from handing caretaker money over to the month it is for (Settings → "maintenance_given_for"). */
+const HANDOVER_OFFSET: Record<string, number> = { next_month: 1, same_month: 0, previous_month: -1 };
 
+/** Record a cash movement, optionally linked to the tenant cash receipts it came from. */
 export function MovementForm({ initialKind = "caretaker_handover", initialSource, suggestedAmount, forPeriod, onClose, onDone }: {
   initialKind?: string; initialSource?: Receipt; suggestedAmount?: number;
   /** Maintenance month the cash is for, e.g. September's top-up handed over in October. */
@@ -55,6 +57,11 @@ export function MovementForm({ initialKind = "caretaker_handover", initialSource
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const receipts = useApi<Receipt[]>(from === "family_cash" ? "/api/cash/receipts?only_with_cash_left=true" : null);
+  // Without an explicit month, follow the family's rule (e.g. money given in October is for November).
+  const rules = useApi<{ settings: { maintenance_given_for: string } }>(forPeriod ? null : "/api/settings");
+  useEffect(() => {
+    if (rules.data) setForMonth(addMonths(date.slice(0, 7), HANDOVER_OFFSET[rules.data.settings.maintenance_given_for] ?? 0));
+  }, [rules.data]); // only once the rule loads, so a month the user picks is kept
   const paise = parseRupees(amount);
   const sources = Object.entries(links).map(([id, v]) => ({ rent_payment_id: Number(id), amount_paise: parseRupees(v) ?? 0 }))
     .filter((s) => s.amount_paise > 0);

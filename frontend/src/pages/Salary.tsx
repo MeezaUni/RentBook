@@ -27,8 +27,19 @@ export function SalaryPage() {
       {loading && !data && <Loading />}
       {data && (
         <div className="flex flex-col gap-4">
+          {data.pay_now_period !== period && (
+            <Alert tone="info" title={`In ${formatPeriod(period)} you pay ${formatPeriod(data.pay_now_period)}'s salary`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>The figures below are for {formatPeriod(period)}'s salary, paid in {formatPeriod(data.paid_in_period)}.</span>
+                <Button size="sm" className="no-print" onClick={() => setPeriod(data.pay_now_period)}>Open {formatPeriod(data.pay_now_period)}</Button>
+              </div>
+            </Alert>
+          )}
+          {data.status === "not_tracked" && (
+            <Alert tone="info">{formatPeriod(period)}'s salary was paid in {formatPeriod(data.paid_in_period)}, before these records start, so nothing is owed here.</Alert>
+          )}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label={`Salary for ${formatPeriod(period, true)}`} value={formatINR(data.expected_paise)} />
+            <Stat label={`Salary for ${formatPeriod(period, true)}`} value={formatINR(data.expected_paise)} hint={`Paid in ${formatPeriod(data.paid_in_period)}`} />
             <Stat label="Paid (confirmed)" tone="good" value={formatINR(data.confirmed_paise)} hint={data.pending_paise ? `+ ${formatINR(data.pending_paise)} pending` : undefined} />
             <Stat label="Still to pay" tone={data.outstanding_paise ? "warn" : "neutral"} value={formatINR(data.outstanding_paise)}
               hint={data.overpaid_paise ? `Overpaid by ${formatINR(data.overpaid_paise)}` : undefined} />
@@ -74,7 +85,9 @@ export function SalaryPage() {
           </Card>
         </div>
       )}
-      {adding && data && <SalaryForm period={period} suggested={data.outstanding_paise} onClose={() => setAdding(false)} onDone={refresh} />}
+      {/* Recording defaults to the salary paid this month (next month's, when paid in advance). */}
+      {adding && data && <SalaryForm period={data.status === "not_tracked" ? data.pay_now_period : period}
+        suggested={data.status === "not_tracked" ? 0 : data.outstanding_paise} onClose={() => setAdding(false)} onDone={refresh} />}
       {cancel && (
         <ReasonDialog title="Cancel salary payment?" danger confirmLabel="Cancel payment" onClose={() => setCancel(null)}
           onSubmit={async (reason) => { await api.post(`/api/salary/${cancel.id}/cancel`, { reason }); refresh(); }} />

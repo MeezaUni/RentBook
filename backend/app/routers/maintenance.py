@@ -12,6 +12,7 @@ from ..db import get_db
 from ..periods import add_months, current_period, today, validate_period
 from ..security import Actor, require_user
 from ..services import maintenance as svc
+from ..services.settings import tracking_start
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
 
@@ -113,7 +114,9 @@ def salary(period: str | None = None, db: Session = Depends(get_db)):
 @router.get("/salary/history")
 def salary_history(months: int = 12, db: Session = Depends(get_db)):
     cur = current_period()
-    return [svc.salary_month(db, add_months(cur, -i)) for i in range(max(1, min(months, 36)))]
+    start = tracking_start(db)
+    months_back = [add_months(cur, -i) for i in range(max(1, min(months, 36)))]
+    return [svc.salary_month(db, p) for p in months_back if start is None or p >= start]
 
 
 class SalaryIn(BaseModel):

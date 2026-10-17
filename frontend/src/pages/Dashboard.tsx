@@ -30,7 +30,8 @@ interface Dashboard {
   caretaker_cash_now_paise: number;
   family_cash_now_paise: number;
   maintenance_top_up: { period: string; top_up_required_paise: number; handed_over_paise: number; still_to_hand_over_paise: number };
-  salary: { expected_paise: number; confirmed_paise: number; pending_paise: number; outstanding_paise: number; status: string };
+  tracking_start_period: string | null;
+  salary: { period: string; expected_paise: number; confirmed_paise: number; pending_paise: number; outstanding_paise: number; status: string };
   bank_review: { count: number; amount_paise: number };
   pending_payments: number;
 }
@@ -75,6 +76,10 @@ export function DashboardPage() {
 
           <div>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Rent for {formatPeriod(data.rent_period)}{data.rent_period !== period && <span className="normal-case font-normal"> · collected in {formatPeriod(period)}</span>}</h2>
+            {data.tracking_start_period && data.rent_period < data.tracking_start_period && (
+              <div className="mb-3"><Alert tone="info">Records start with {formatPeriod(data.tracking_start_period)}'s rent, so nothing
+                is owed for {formatPeriod(data.rent_period)}.</Alert></div>
+            )}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <Stat label="Expected" value={formatINR(data.rent.expected_paise)} hint={data.rent_period !== period ? `${formatPeriod(data.rent_period)}'s rent, due in ${formatPeriod(period)}` : "Rent due this month"} />
               <Stat label="Confirmed received" tone="good" value={formatINR(data.rent.confirmed_paise)}
@@ -106,7 +111,7 @@ export function DashboardPage() {
                 hint={`Started the month with ${formatINR(data.maintenance.opening_paise)}`} />
               <Stat label="Maintenance spent" value={formatINR(data.maintenance.total_expenses_paise)}
                 hint={data.maintenance.family_paid_paise ? `${formatINR(data.maintenance.family_paid_paise)} paid by family` : `Budget ${formatINR(data.maintenance.target_paise)}`} />
-              <Stat label="Salary" value={<StatusBadge status={data.salary.status} />}
+              <Stat label={`Salary · for ${formatPeriod(data.salary.period, true)}`} value={<StatusBadge status={data.salary.status} />}
                 hint={`${formatINR(data.salary.confirmed_paise)} of ${formatINR(data.salary.expected_paise)} paid`} />
             </div>
           </div>

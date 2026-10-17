@@ -121,7 +121,15 @@ Tests use their own temporary database with made-up names, never your data.
   - Unspent cash carries forward.
   - Expenses beyond his cash are recorded as **paid by family**, never by quietly raising the budget.
   - A negative balance is shown as a discrepancy, never hidden as zero.
-- **Salary** has its own page and never touches maintenance cash.
+  - By default maintenance money is given **a month ahead**: what you hand over in October is November's top-up.
+    Each handover records which month it is for, and that month's figures count it. The Maintenance page and the
+    dashboard show the top-up to hand over this month.
+- **Salary** has its own page and never touches maintenance cash. By default it is also paid a month ahead
+  (November's salary in October).
+- **Records start from** (Settings → Rates & rules): rent, maintenance and salary for months before it are never
+  shown as owed. Starting in October means October's rent is collected in November, while October's maintenance and
+  salary were paid in September, before the records. Enter the cash the caretaker held on the first day as an
+  opening balance. Each of these month rules can be changed in Settings.
 - **Cash**: a cash rent receipt is counted once. Handing that cash to the caretaker is a separate *movement*, optionally linked to the receipt, and never a second receipt.
 - **Effective-dated amounts**: the ₹15,000 maintenance target and ₹15,000 salary can be changed "from month X" without rewriting history.
 

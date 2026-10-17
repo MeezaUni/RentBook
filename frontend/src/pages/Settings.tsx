@@ -103,9 +103,11 @@ function BuildingEditor({ b, save }: { b: Building; save: (fn: () => Promise<unk
 // ------------------------------------------------------------------- money
 
 interface SettingsResp {
-  settings: { billing_policy: string; rent_due_month: string; overdue_grace_days: number; payment_method_labels: { cash: string; online: string } };
+  settings: { billing_policy: string; rent_due_month: string; tracking_start_period: string | null;
+    maintenance_given_for: string; salary_paid_for: string; overdue_grace_days: number; payment_method_labels: { cash: string; online: string } };
   billing_policies: Record<string, string>;
   rent_due_months: Record<string, string>;
+  handover_months: Record<string, string>;
   rate_keys: Record<string, string>;
   rates: { id: number; key: string; amount_paise: number; effective_period: string; note: string | null; created_by: string | null }[];
 }
@@ -149,14 +151,17 @@ function MoneySettings() {
           <Button type="submit">Save</Button>
         </form>
       </Card>
-      <RulesCard st={st} policies={data.billing_policies} dueMonths={data.rent_due_months} run={s.run} reload={reload} />
+      <RulesCard st={st} policies={data.billing_policies} dueMonths={data.rent_due_months} handoverMonths={data.handover_months} run={s.run} reload={reload} />
     </div>
   );
 }
 
-function RulesCard({ st, policies, dueMonths, run, reload }: { st: SettingsResp["settings"]; policies: Record<string, string>;
-  dueMonths: Record<string, string>; run: (fn: () => Promise<unknown>) => void; reload: () => void }) {
+function RulesCard({ st, policies, dueMonths, handoverMonths, run, reload }: { st: SettingsResp["settings"]; policies: Record<string, string>;
+  dueMonths: Record<string, string>; handoverMonths: Record<string, string>; run: (fn: () => Promise<unknown>) => void; reload: () => void }) {
+  const [start, setStart] = useState(st.tracking_start_period ?? "");
   const [dueMonth, setDueMonth] = useState(st.rent_due_month);
+  const [mntFor, setMntFor] = useState(st.maintenance_given_for);
+  const [salaryFor, setSalaryFor] = useState(st.salary_paid_for);
   const [policy, setPolicy] = useState(st.billing_policy);
   const [grace, setGrace] = useState(String(st.overdue_grace_days));
   const [cash, setCash] = useState(st.payment_method_labels.cash);
@@ -164,10 +169,27 @@ function RulesCard({ st, policies, dueMonths, run, reload }: { st: SettingsResp[
   return (
     <Card title="Rent rules">
       <div className="flex flex-col gap-3">
+        <Field label="Records start from" hint="Rent, maintenance and salary before this month are never shown as owed. Leave empty for no limit.">
+          {(id) => <input id={id} type="month" className={inputCls + " w-48"} value={start} onChange={(e) => setStart(e.target.value)} />}
+        </Field>
         <Field label="When is a month's rent due?" hint="Each tenant's due day is set on their flat page. Applies to rent months generated from now on.">
           {(id) => (
             <select id={id} className={inputCls} value={dueMonth} onChange={(e) => setDueMonth(e.target.value)}>
               {Object.entries(dueMonths).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          )}
+        </Field>
+        <Field label="Maintenance money handed over in a month is for…">
+          {(id) => (
+            <select id={id} className={inputCls} value={mntFor} onChange={(e) => setMntFor(e.target.value)}>
+              {Object.entries(handoverMonths).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          )}
+        </Field>
+        <Field label="Salary paid in a month is for…">
+          {(id) => (
+            <select id={id} className={inputCls} value={salaryFor} onChange={(e) => setSalaryFor(e.target.value)}>
+              {Object.entries(handoverMonths).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           )}
         </Field>
@@ -187,7 +209,10 @@ function RulesCard({ st, policies, dueMonths, run, reload }: { st: SettingsResp[
         </div>
         <div>
           <Button onClick={() => run(async () => {
+            await api.put("/api/settings", { key: "tracking_start_period", value: start || null });
             await api.put("/api/settings", { key: "rent_due_month", value: dueMonth });
+            await api.put("/api/settings", { key: "maintenance_given_for", value: mntFor });
+            await api.put("/api/settings", { key: "salary_paid_for", value: salaryFor });
             await api.put("/api/settings", { key: "billing_policy", value: policy });
             await api.put("/api/settings", { key: "overdue_grace_days", value: Number(grace) });
             await api.put("/api/settings", { key: "payment_method_labels", value: { cash, online } });

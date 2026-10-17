@@ -205,8 +205,12 @@ export interface SalaryMonth {
   pending_paise: number;
   outstanding_paise: number;
   overpaid_paise: number;
-  status: "paid" | "partially_paid" | "pending_verification" | "unpaid";
+  status: "paid" | "partially_paid" | "pending_verification" | "unpaid" | "not_tracked";
   payments: SalaryPayment[];
+  /** The month this salary is paid in (October for November's, when paid in advance). */
+  paid_in_period: string;
+  /** The salary month paid during this month. */
+  pay_now_period: string;
 }
 
 export interface Candidate {

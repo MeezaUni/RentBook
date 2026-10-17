@@ -12,6 +12,7 @@ from ..periods import current_period, first_day, last_day, validate_period
 from ..security import require_user
 from ..services import cash as cash_svc
 from ..services import maintenance as mnt
+from ..services.settings import tracking_start
 from .properties import buildings_overview, rent_period_for
 from .rent import ledger
 
@@ -73,9 +74,9 @@ def dashboard(period: str | None = None, db: Session = Depends(get_db)):
         e["periods"].append(d["period"])
         e["is_overdue"] = e["is_overdue"] or d["is_overdue"]
     m = mnt.month_summary(db, period)
-    # The top-up being handed over now: last month's while some of it is still owed.
-    top = mnt.month_summary(db, m["previous_period"]) if m["previous_still_to_hand_over_paise"] else m
-    sal = mnt.salary_month(db, period)
+    # The top-up and the salary handed over during this month (next month's, when given in advance).
+    top = mnt.month_summary(db, m["handover_period"]) if m["handover_period"] != period else m
+    sal = mnt.salary_month(db, mnt.salary_paid_during(db, period))
     review_q = (BankTransaction.review_status.in_(("unreviewed", "partially_allocated")), BankTransaction.credit_paise > 0)
     pending_payments = db.scalar(select(func.count(RentPayment.id)).where(RentPayment.status == "pending")) or 0
     data = {
@@ -95,8 +96,9 @@ def dashboard(period: str | None = None, db: Session = Depends(get_db)):
         "maintenance_discrepancies": len(m["discrepancies"]),
         "caretaker_cash_now_paise": cash_svc.balance(db, "caretaker_cash"),
         "family_cash_now_paise": cash_svc.balance(db, "family_cash"),
-        "salary": {k: sal[k] for k in ("expected_paise", "confirmed_paise", "pending_paise", "outstanding_paise",
-                                       "status")},
+        "salary": {k: sal[k] for k in ("period", "expected_paise", "confirmed_paise", "pending_paise",
+                                       "outstanding_paise", "status")},
+        "tracking_start_period": tracking_start(db),
         "bank_review": {
             "count": db.scalar(select(func.count(BankTransaction.id)).where(*review_q)) or 0,
             "amount_paise": int(db.scalar(select(func.coalesce(func.sum(BankTransaction.credit_paise), 0))
