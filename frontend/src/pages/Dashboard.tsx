@@ -29,6 +29,7 @@ interface Dashboard {
   maintenance_discrepancies: number;
   caretaker_cash_now_paise: number;
   family_cash_now_paise: number;
+  maintenance_top_up: { period: string; top_up_required_paise: number; handed_over_paise: number; still_to_hand_over_paise: number };
   salary: { expected_paise: number; confirmed_paise: number; pending_paise: number; outstanding_paise: number; status: string };
   bank_review: { count: number; amount_paise: number };
   pending_payments: number;
@@ -96,9 +97,10 @@ export function DashboardPage() {
           <div>
             <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted">Caretaker</h2>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <Stat label="Top-up to give" icon={<Wrench className="size-3.5" />} tone={data.maintenance.still_to_hand_over_paise ? "info" : "good"}
-                value={formatINR(data.maintenance.still_to_hand_over_paise)}
-                hint={`Required ${formatINR(data.maintenance.top_up_required_paise)}, handed ${formatINR(data.maintenance.handed_over_paise)}`} />
+              <Stat label={`Top-up to give · for ${formatPeriod(data.maintenance_top_up.period, true)}`} icon={<Wrench className="size-3.5" />}
+                tone={data.maintenance_top_up.still_to_hand_over_paise ? "info" : "good"}
+                value={formatINR(data.maintenance_top_up.still_to_hand_over_paise)}
+                hint={`Required ${formatINR(data.maintenance_top_up.top_up_required_paise)}, handed ${formatINR(data.maintenance_top_up.handed_over_paise)}`} />
               <Stat label="Cash he holds now" icon={<Wallet className="size-3.5" />}
                 tone={data.caretaker_cash_now_paise < 0 ? "bad" : "neutral"} value={formatINR(data.caretaker_cash_now_paise)}
                 hint={`Started the month with ${formatINR(data.maintenance.opening_paise)}`} />

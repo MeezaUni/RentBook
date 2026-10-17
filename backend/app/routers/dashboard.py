@@ -73,6 +73,8 @@ def dashboard(period: str | None = None, db: Session = Depends(get_db)):
         e["periods"].append(d["period"])
         e["is_overdue"] = e["is_overdue"] or d["is_overdue"]
     m = mnt.month_summary(db, period)
+    # The top-up being handed over now: last month's while some of it is still owed.
+    top = mnt.month_summary(db, m["previous_period"]) if m["previous_still_to_hand_over_paise"] else m
     sal = mnt.salary_month(db, period)
     review_q = (BankTransaction.review_status.in_(("unreviewed", "partially_allocated")), BankTransaction.credit_paise > 0)
     pending_payments = db.scalar(select(func.count(RentPayment.id)).where(RentPayment.status == "pending")) or 0
@@ -88,6 +90,8 @@ def dashboard(period: str | None = None, db: Session = Depends(get_db)):
         "maintenance": {k: m[k] for k in ("target_paise", "opening_paise", "top_up_required_paise",
                                           "handed_over_paise", "still_to_hand_over_paise", "total_expenses_paise",
                                           "caretaker_spent_paise", "family_paid_paise", "closing_paise")},
+        "maintenance_top_up": {"period": top["period"], **{k: top[k] for k in (
+            "top_up_required_paise", "handed_over_paise", "still_to_hand_over_paise")}},
         "maintenance_discrepancies": len(m["discrepancies"]),
         "caretaker_cash_now_paise": cash_svc.balance(db, "caretaker_cash"),
         "family_cash_now_paise": cash_svc.balance(db, "family_cash"),

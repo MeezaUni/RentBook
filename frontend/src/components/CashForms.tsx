@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { api } from "../lib/api";
 import { useApi } from "../lib/hooks";
-import { formatDate, formatINR, paiseToInput, parseRupees, todayISO } from "../lib/money";
+import { currentPeriod, formatDate, formatINR, paiseToInput, parseRupees, todayISO } from "../lib/money";
 import { Alert, Button, Field, inputCls, Modal } from "./ui";
 
 export interface Receipt {
@@ -35,9 +35,15 @@ export const ACCOUNT_LABELS: Record<string, string> = {
 };
 
 /** Record a cash movement, optionally linked to the tenant cash receipts it came from. */
-export function MovementForm({ initialKind = "caretaker_handover", initialSource, suggestedAmount, onClose, onDone }: {
-  initialKind?: string; initialSource?: Receipt; suggestedAmount?: number; onClose: () => void; onDone: () => void;
+/** Kinds whose cash counts towards a maintenance month, which can differ from the date it moved. */
+const FOR_MONTH_KINDS = new Set(["caretaker_handover", "caretaker_return"]);
+
+export function MovementForm({ initialKind = "caretaker_handover", initialSource, suggestedAmount, forPeriod, onClose, onDone }: {
+  initialKind?: string; initialSource?: Receipt; suggestedAmount?: number;
+  /** Maintenance month the cash is for, e.g. September's top-up handed over in October. */
+  forPeriod?: string; onClose: () => void; onDone: () => void;
 }) {
+  const [forMonth, setForMonth] = useState(forPeriod ?? currentPeriod());
   const [kind, setKind] = useState(initialKind);
   const k = MOVEMENT_KINDS[kind];
   const [from, setFrom] = useState(k.from);
@@ -69,6 +75,7 @@ export function MovementForm({ initialKind = "caretaker_handover", initialSource
       await api.post("/api/cash/movements", {
         kind, movement_date: date, amount_paise: paise, from_account: from, to_account: to,
         description: description || null, sources: from === "family_cash" ? sources : [],
+        period: FOR_MONTH_KINDS.has(kind) ? forMonth : null,
       });
       onDone();
       onClose();
@@ -109,6 +116,11 @@ export function MovementForm({ initialKind = "caretaker_handover", initialSource
           </Field>
           <Field label="Date">{(id) => <input id={id} type="date" className={inputCls} value={date} max={todayISO()} onChange={(e) => setDate(e.target.value)} required />}</Field>
           <Field label="Amount (₹)">{(id) => <input id={id} className={inputCls} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required />}</Field>
+          {FOR_MONTH_KINDS.has(kind) && (
+            <Field label="For which month's maintenance" hint="e.g. September's top-up handed over on 20 October is for September.">
+              {(id) => <input id={id} type="month" className={inputCls} value={forMonth} onChange={(e) => e.target.value && setForMonth(e.target.value)} required />}
+            </Field>
+          )}
         </div>
         <Field label={kind === "adjustment" ? "Why is an adjustment needed? (required)" : "Description (optional)"}>
           {(id) => <input id={id} className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} required={kind === "adjustment"} />}

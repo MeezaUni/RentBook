@@ -1,7 +1,9 @@
 """Maintenance cash, expenses and the caretaker's (separate) salary.
 
 Top-up rule: required = max(0, target - caretaker cash held at the start of the month).
-The salary never touches the caretaker's maintenance cash.
+A month's figures count the cash given *for* that month, even when it is handed over later
+(September's top-up given on 20 October counts for September). Expenses count in the month they
+happen. The salary never touches the caretaker's maintenance cash.
 """
 
 from __future__ import annotations
@@ -34,15 +36,38 @@ def top_up_required(target_paise: int, opening_paise: int) -> int:
     return max(0, target_paise - opening_paise)
 
 
+_CARETAKER = (CashMovement.to_account == "caretaker_cash") | (CashMovement.from_account == "caretaker_cash")
+
+
+def opening_for(db: Session, period: str) -> int:
+    """Caretaker cash carried into `period`: everything given for earlier months, less what he spent."""
+    def total(*where) -> int:
+        return int(db.scalar(select(func.coalesce(func.sum(CashMovement.amount_paise), 0))
+                             .where(CashMovement.status == "active", CashMovement.period < period, *where)) or 0)
+
+    spent = db.scalar(select(func.coalesce(func.sum(MaintenanceExpense.caretaker_paid_paise), 0)).where(
+        MaintenanceExpense.status == "active", MaintenanceExpense.period < period)) or 0
+    return (total(CashMovement.to_account == "caretaker_cash")
+            - total(CashMovement.from_account == "caretaker_cash") - int(spent))
+
+
+def still_to_give(db: Session, period: str) -> int:
+    """How much of `period`'s top-up has not been handed over yet."""
+    required = top_up_required(get_rate(db, "maintenance_target", period), opening_for(db, period))
+    handed = db.scalar(select(func.coalesce(func.sum(CashMovement.amount_paise), 0)).where(
+        CashMovement.status == "active", CashMovement.kind == "caretaker_handover", CashMovement.period == period)) or 0
+    return max(0, required - int(handed))
+
+
 def month_summary(db: Session, period: str) -> dict:
     validate_period(period)
     start, end = first_day(period), last_day(period)
     target = get_rate(db, "maintenance_target", period)
-    opening = cash.balance(db, "caretaker_cash", start - dt.timedelta(days=1))
+    opening = opening_for(db, period)
     required = top_up_required(target, opening)
     moves = db.scalars(select(CashMovement).where(
-        CashMovement.status == "active", CashMovement.movement_date.between(start, end),
-        (CashMovement.to_account == "caretaker_cash") | (CashMovement.from_account == "caretaker_cash"))).all()
+        CashMovement.status == "active", CashMovement.period == period, _CARETAKER)
+        .order_by(CashMovement.movement_date, CashMovement.id)).all()
     handed = sum(m.amount_paise for m in moves if m.kind == "caretaker_handover")
     other_net = sum((m.amount_paise if m.to_account == "caretaker_cash" else -m.amount_paise)
                     for m in moves if m.kind != "caretaker_handover")
@@ -82,6 +107,9 @@ def month_summary(db: Session, period: str) -> dict:
         "movements": [cash.describe_movement(m) for m in moves],
         "discrepancies": discrepancies,
         "notes": note.notes if note else None,
+        # Last month's top-up is usually handed over this month; flag it while some is still owed.
+        "previous_period": add_months(period, -1),
+        "previous_still_to_hand_over_paise": still_to_give(db, add_months(period, -1)),
     }
 
 
@@ -107,13 +135,12 @@ def overview(db: Session) -> dict:
 def history(db: Session, months: int = 12) -> list[dict]:
     cur = current_period()
     # Start at the first month with any caretaker record, so empty pre-app months are not shown.
-    first_dates = [
-        db.scalar(select(func.min(CashMovement.movement_date)).where(
-            (CashMovement.to_account == "caretaker_cash") | (CashMovement.from_account == "caretaker_cash"))),
-        db.scalar(select(func.min(MaintenanceExpense.expense_date))),
+    firsts = [
+        db.scalar(select(func.min(CashMovement.period)).where(_CARETAKER)),
+        db.scalar(select(func.min(MaintenanceExpense.period))),
     ]
-    known = [d for d in first_dates if d is not None]
-    first = period_of(min(known)) if known else cur
+    known = [p for p in firsts if p is not None]
+    first = min(known) if known else cur
     out = []
     for i in range(months - 1, -1, -1):
         if add_months(cur, -i) < first:

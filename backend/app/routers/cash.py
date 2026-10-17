@@ -48,13 +48,16 @@ class MovementIn(BaseModel):
     to_account: str = Field(max_length=16)
     description: str | None = Field(default=None, max_length=2000)
     sources: list[SourceIn] = []
+    # The month the cash is for, if not the month it moved (e.g. September's top-up given in October).
+    period: str | None = None
 
 
 @router.post("/movements")
 def new_movement(body: MovementIn, actor: Actor = Depends(require_user), db: Session = Depends(get_db)):
     m = svc.create_movement(db, kind=body.kind, movement_date=body.movement_date, amount_paise=body.amount_paise,
                             from_account=body.from_account, to_account=body.to_account, description=body.description,
-                            sources=[(s.rent_payment_id, s.amount_paise) for s in body.sources], actor=actor.name)
+                            sources=[(s.rent_payment_id, s.amount_paise) for s in body.sources], actor=actor.name,
+                            period=body.period)
     db.commit()
     db.refresh(m)
     return svc.describe_movement(m)

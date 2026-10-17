@@ -17,6 +17,7 @@ interface Summary {
   family_paid_paise: number; total_expenses_paise: number; over_target_paise: number; closing_paise: number;
   by_category: { category: string; amount_paise: number }[]; expenses: Expense[]; movements: CashMovement[];
   discrepancies: Discrepancy[]; notes: string | null;
+  previous_period: string; previous_still_to_hand_over_paise: number;
 }
 
 type HistoryRow = Pick<Summary, "period" | "target_paise" | "opening_paise" | "top_up_required_paise" | "handed_over_paise" |
@@ -26,7 +27,7 @@ export function MaintenancePage() {
   const [period, setPeriod] = usePeriod();
   const { data, error, loading, reload } = useApi<Summary>(`/api/maintenance/summary${qs({ period })}`);
   const history = useApi<HistoryRow[]>("/api/maintenance/history?months=12");
-  const [dialog, setDialog] = useState<null | "topup" | "expense" | "movement" | "count">(null);
+  const [dialog, setDialog] = useState<null | "topup" | "topupPrevious" | "expense" | "movement" | "count">(null);
   const [reverse, setReverse] = useState<Expense | null>(null);
   const [openDocs, setOpenDocs] = useState<number | null>(null);
   const refresh = () => { reload(); history.reload(); };
@@ -39,6 +40,16 @@ export function MaintenancePage() {
       {loading && !data && <Loading />}
       {data && (
         <div className="flex flex-col gap-4">
+          {data.previous_still_to_hand_over_paise > 0 && (
+            <Alert tone="info" title={`${formatPeriod(data.previous_period)}'s top-up: give him ${formatINR(data.previous_still_to_hand_over_paise)}`}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span>Last month's maintenance money, if you hand it over this month.</span>
+                <Button size="sm" className="no-print" onClick={() => setDialog("topupPrevious")}>
+                  <HandCoins className="size-3.5" /> Record for {formatPeriod(data.previous_period)}
+                </Button>
+              </div>
+            </Alert>
+          )}
           <Card>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -46,7 +57,7 @@ export function MaintenancePage() {
                   Target {formatINR(data.target_paise)}.</div>
                 <div className="mt-1 text-xl font-semibold">
                   {data.still_to_hand_over_paise > 0
-                    ? <>Give him <span className="money text-sky-800">{formatINR(data.still_to_hand_over_paise)}</span></>
+                    ? <>Give him <span className="money text-sky-800">{formatINR(data.still_to_hand_over_paise)}</span> for {formatPeriod(period)}</>
                     : data.top_up_required_paise === 0
                       ? <>No top-up needed this month</>
                       : <>Top-up of {formatINR(data.top_up_required_paise)} handed over ✓</>}
@@ -55,7 +66,7 @@ export function MaintenancePage() {
                   {data.handed_over_paise > 0 && ` · handed ${formatINR(data.handed_over_paise)} so far`}</div>
               </div>
               <div className="flex flex-wrap gap-2 no-print">
-                <Button variant="primary" onClick={() => setDialog("topup")}><HandCoins className="size-4" /> Record cash handed over</Button>
+                <Button variant="primary" onClick={() => setDialog("topup")}><HandCoins className="size-4" /> Record cash handed over for {formatPeriod(period, true)}</Button>
                 <Button onClick={() => setDialog("expense")}><Plus className="size-4" /> Record expense</Button>
                 <Button onClick={() => setDialog("count")}><Calculator className="size-4" /> Count his cash</Button>
                 <Button variant="ghost" onClick={() => setDialog("movement")}>Other movement…</Button>
@@ -107,11 +118,11 @@ export function MaintenancePage() {
           </Card>
 
           <Card title="Caretaker cash movements">
-            {data.movements.length === 0 ? <Empty>No cash handed over this month.</Empty> : (
+            {data.movements.length === 0 ? <Empty>No cash handed over for {formatPeriod(period)} yet.</Empty> : (
               <ul className="divide-y divide-line text-sm">
                 {data.movements.map((m) => (
                   <li key={m.id} className="flex justify-between py-1.5">
-                    <span>{formatDate(m.movement_date)} · {m.kind_label} <span className="text-xs text-muted">({ACCOUNT_LABELS[m.from_account]} → {ACCOUNT_LABELS[m.to_account]})</span>
+                    <span>{m.kind === "caretaker_handover" ? "Given " : ""}{formatDate(m.movement_date)} · {m.kind_label} <span className="text-xs text-muted">({ACCOUNT_LABELS[m.from_account]} → {ACCOUNT_LABELS[m.to_account]})</span>
                       {m.description && <span className="block text-xs text-muted">{m.description}</span>}</span>
                     <Money paise={m.amount_paise} />
                   </li>
@@ -142,7 +153,12 @@ export function MaintenancePage() {
         </div>
       )}
       {dialog === "topup" && data && (
-        <MovementForm initialKind="caretaker_handover" suggestedAmount={data.still_to_hand_over_paise || undefined} onClose={() => setDialog(null)} onDone={refresh} />
+        <MovementForm initialKind="caretaker_handover" forPeriod={period} suggestedAmount={data.still_to_hand_over_paise || undefined}
+          onClose={() => setDialog(null)} onDone={refresh} />
+      )}
+      {dialog === "topupPrevious" && data && (
+        <MovementForm initialKind="caretaker_handover" forPeriod={data.previous_period}
+          suggestedAmount={data.previous_still_to_hand_over_paise || undefined} onClose={() => setDialog(null)} onDone={refresh} />
       )}
       {dialog === "movement" && <MovementForm initialKind="caretaker_return" onClose={() => setDialog(null)} onDone={refresh} />}
       {dialog === "count" && <CountForm account="caretaker_cash" onClose={() => setDialog(null)} onDone={refresh} />}

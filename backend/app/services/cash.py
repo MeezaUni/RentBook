@@ -29,7 +29,15 @@ from ..models import (
     RentPayment,
     utcnow,
 )
-from ..periods import first_day, last_day, today
+from ..periods import (
+    add_months,
+    first_day,
+    label,
+    last_day,
+    period_of,
+    today,
+    validate_period,
+)
 from .property import get_or_404
 
 ACCOUNTS = {"family_cash", "caretaker_cash", "external"}
@@ -97,7 +105,12 @@ def create_movement(
     description: str | None,
     sources: list[tuple[int, int]] | None,
     actor: str,
+    period: str | None = None,
 ) -> CashMovement:
+    """`period` is the month the cash is for (e.g. September's top-up handed over on 20 October).
+
+    It defaults to the month of `movement_date`.
+    """
     if kind not in KIND_RULES:
         raise DomainError("invalid_kind", "Unknown cash movement type")
     if (from_account, to_account) not in KIND_RULES[kind]:
@@ -108,6 +121,12 @@ def create_movement(
         raise DomainError("future_date", "Date cannot be in the future")
     if kind == "adjustment" and len((description or "").strip()) < 3:
         raise DomainError("reason_required", "Adjustments need a description of why they are needed")
+    movement_month = period_of(movement_date)
+    if period is None:
+        period = movement_month
+    elif not add_months(movement_month, -12) <= validate_period(period) <= add_months(movement_month, 1):
+        raise DomainError("invalid_period", f"The month this cash is for must be close to the date it moved "
+                                            f"({label(add_months(movement_month, -12))} to {label(add_months(movement_month, 1))})")
     sources = sources or []
     if sources and from_account != "family_cash":
         raise DomainError("invalid_sources", "Only cash leaving the family can be linked to tenant receipts")
@@ -124,7 +143,7 @@ def create_movement(
         if amt <= 0 or linked_amount(db, pay_id) + amt > pay.amount_paise:
             raise Conflict("source_exhausted", f"Receipt #{pay_id} does not have that much unallocated cash left")
     m = CashMovement(kind=kind, movement_date=movement_date, amount_paise=amount_paise, from_account=from_account,
-                     to_account=to_account, period=f"{movement_date:%Y-%m}",
+                     to_account=to_account, period=period,
                      description=(description or "").strip() or None, recorded_by=actor)
     db.add(m)
     db.flush()
@@ -155,6 +174,7 @@ def describe_movement(m: CashMovement) -> dict:
     return {
         "id": m.id,
         "movement_date": m.movement_date.isoformat(),
+        "period": m.period,
         "kind": m.kind,
         "kind_label": KIND_LABELS.get(m.kind, m.kind),
         "amount_paise": m.amount_paise,

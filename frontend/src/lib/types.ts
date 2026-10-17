@@ -146,6 +146,8 @@ export interface DocumentInfo {
 export interface CashMovement {
   id: number;
   movement_date: string;
+  /** The month the cash is for (may be earlier than movement_date's month). */
+  period: string;
   kind: string;
   kind_label: string;
   amount_paise: number;

@@ -208,3 +208,42 @@ def test_tenant_arrears_opening_balance_is_payable_and_labelled(db):
     alloc = rent.describe_payment(p)["allocations"][0]
     assert alloc["kind"] == "opening_balance"
     assert opening.list_all(db)[0]["kind_label"] == "Tenant arrears"
+
+
+def test_top_up_handed_over_next_month_counts_for_the_month_it_is_for(db):
+    # September's top-up is handed over on 20 October.
+    m = cash.create_movement(db, kind="caretaker_handover", movement_date=D(2025, 10, 20), amount_paise=15 * K,
+                             from_account="external", to_account="caretaker_cash", description=None, sources=None,
+                             actor="tester", period="2025-09")
+    db.commit()
+    assert cash.describe_movement(m)["period"] == "2025-09"
+    sep = mnt.month_summary(db, "2025-09")
+    assert (sep["handed_over_paise"], sep["still_to_hand_over_paise"], sep["closing_paise"]) == (15 * K, 0, 15 * K)
+    oct_ = mnt.month_summary(db, "2025-10")
+    assert oct_["handed_over_paise"] == 0 and oct_["opening_paise"] == 15 * K
+    assert oct_["previous_still_to_hand_over_paise"] == 0
+
+
+def test_last_months_unpaid_top_up_is_flagged(db):
+    nov = mnt.month_summary(db, "2025-11")
+    assert nov["previous_period"] == "2025-10" and nov["previous_still_to_hand_over_paise"] == 15 * K
+
+
+def test_handover_for_month_must_be_near_the_date(db):
+    from app.errors import DomainError
+
+    with pytest.raises(DomainError) as e:
+        cash.create_movement(db, kind="caretaker_handover", movement_date=D(2025, 10, 20), amount_paise=K,
+                             from_account="external", to_account="caretaker_cash", description=None, sources=None,
+                             actor="tester", period="2024-01")
+    assert e.value.code == "invalid_period"
+
+
+def test_dashboard_top_up_tile_shows_last_month_while_owed(client, db):
+    tile = client.get("/api/dashboard?period=2025-11").json()["maintenance_top_up"]
+    assert tile["period"] == "2025-10" and tile["still_to_hand_over_paise"] == 15 * K
+    client.post("/api/cash/movements", json={"kind": "caretaker_handover", "movement_date": "2025-11-20",
+                                             "amount_paise": 15 * K, "from_account": "external",
+                                             "to_account": "caretaker_cash", "period": "2025-10"})
+    tile = client.get("/api/dashboard?period=2025-11").json()["maintenance_top_up"]
+    assert tile["period"] == "2025-11"  # October is settled, so November's own top-up is shown
