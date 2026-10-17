@@ -1,4 +1,4 @@
-"""Deleting a tenant: allowed for mistakes, refused once money history exists."""
+"""Tenant records: deleting (only for mistakes) and notes."""
 
 from __future__ import annotations
 
@@ -75,3 +75,16 @@ def test_delete_endpoint(client, db):
     r = client.post(f"/api/tenants/{ten.tenant_id}/delete", json={"reason": "duplicate"})
     assert r.status_code == 409
     assert "End their tenancy" in r.text
+
+
+def test_tenancy_and_flat_notes_save_and_clear(client, db):
+    ten = make_tenancy(db, label="P-G1")
+    note = "Pays cash to the caretaker, who sends it to the owner"
+    assert client.patch(f"/api/tenancies/{ten.id}", json={"notes": note}).status_code == 200
+    flats = {f["label"]: f for b in client.get("/api/buildings").json()["buildings"] for f in b["flats"]}
+    assert flats["P-G1"]["tenancy"]["notes"] == note
+    assert client.patch(f"/api/tenancies/{ten.id}", json={"notes": ""}).json()["notes"] is None
+
+    empty = flat(db, "B-1").id
+    assert client.patch(f"/api/flats/{empty}", json={"notes": "Water tank above"}).status_code == 200
+    assert client.get(f"/api/flats/{empty}").json()["flat"]["notes"] == "Water tank above"

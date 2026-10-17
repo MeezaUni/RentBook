@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarPlus, DoorOpen, Home, IndianRupee, KeyRound, Pencil, Settings2 } from "lucide-react";
+import { ArrowLeft, CalendarPlus, DoorOpen, Home, IndianRupee, KeyRound, Pencil, Save, Settings2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link, useParams } from "react-router";
 import { themeFor } from "../components/FlatCard";
@@ -9,7 +9,7 @@ import {
   AddTenancyForm, ChangeRentForm, DueAmountForm, EditTenancyForm, EndOwnerForm, EndTenancyForm, ManualDueForm,
   OwnerOccupancyForm,
 } from "../components/TenancyForms";
-import { Alert, Button, Card, cx, Empty, ErrorNote, Loading, Money, MonthPicker, PageHeader, StatusBadge, Table } from "../components/ui";
+import { Alert, Button, Card, cx, Empty, ErrorNote, inputCls, Loading, Money, MonthPicker, PageHeader, StatusBadge, Table } from "../components/ui";
 import { api, qs } from "../lib/api";
 import { useApi, usePeriod } from "../lib/hooks";
 import { formatDate, formatINR, formatPeriod } from "../lib/money";
@@ -181,6 +181,15 @@ export function FlatPage() {
               )}
             </div>
           </Card>
+          {data.current_tenancy ? (
+            <NotesCard key={`t${data.current_tenancy.id}`} title={`Notes on ${data.current_tenancy.tenant_name}`}
+              hint="Kept with this tenancy, so it doesn't carry over to the next tenant."
+              initial={data.current_tenancy.notes} onSave={(notes) => api.patch(`/api/tenancies/${data.current_tenancy!.id}`, { notes })}
+              onSaved={reload} />
+          ) : (
+            <NotesCard key={`f${data.flat.id}`} title="Notes on this flat" initial={data.flat.notes}
+              onSave={(notes) => api.patch(`/api/flats/${data.flat.id}`, { notes })} onSaved={reload} />
+          )}
         </div>
       </div>
 
@@ -259,5 +268,37 @@ function Fig({ label, value, sub }: { label: string; value: ReactNode; sub?: str
       <div className="text-lg font-semibold">{value}</div>
       {sub && <div className="text-xs text-muted">{sub}</div>}
     </div>
+  );
+}
+
+function NotesCard({ title, hint, initial, onSave, onSaved }: {
+  title: string; hint?: string; initial: string | null; onSave: (notes: string) => Promise<unknown>; onSaved: () => void;
+}) {
+  const [notes, setNotes] = useState(initial ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const changed = notes.trim() !== (initial ?? "").trim();
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(notes.trim());
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card title={title}>
+      <div className="flex flex-col gap-2">
+        <textarea className={inputCls} rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} aria-label={title}
+          placeholder="e.g. Pays rent in cash to the caretaker, who sends it to the owner." />
+        {hint && <p className="text-xs text-muted">{hint}</p>}
+        {error && <Alert tone="error">{error}</Alert>}
+        <div><Button size="sm" busy={busy} disabled={!changed} onClick={save}><Save className="size-3.5" /> Save notes</Button></div>
+      </div>
+    </Card>
   );
 }

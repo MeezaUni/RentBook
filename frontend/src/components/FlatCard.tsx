@@ -1,4 +1,4 @@
-import { History, User } from "lucide-react";
+import { History, StickyNote, User } from "lucide-react";
 import { Link } from "react-router";
 import { formatINR } from "../lib/money";
 import type { FlatCard as FlatCardT } from "../lib/types";
@@ -42,6 +42,12 @@ export function FlatCard({ flat, code, period }: { flat: FlatCardT; code: string
             <div className="mt-1 text-muted">
               Rent <span className="money text-ink">{formatINR(tenancy.current_rent_paise)}</span> / month
             </div>
+            {tenancy.notes && (
+              <div className="mt-1 flex items-start gap-1.5 text-xs text-stone-700" title={tenancy.notes}>
+                <StickyNote className="mt-0.5 size-3.5 shrink-0 text-muted" aria-hidden />
+                <span className="line-clamp-2">{tenancy.notes}</span>
+              </div>
+            )}
             {flat.period_outstanding_paise > 0 && (
               <div className="mt-1 text-red-700">
                 Outstanding <span className="money font-medium">{formatINR(flat.period_outstanding_paise)}</span>
