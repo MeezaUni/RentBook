@@ -37,8 +37,7 @@ interface Dashboard {
 export function DashboardPage() {
   const [period, setPeriod] = usePeriod();
   const { data, error, loading } = useApi<Dashboard>(`/api/dashboard${qs({ period })}`);
-  // Building tiles show the same rent month as the figures below.
-  const { data: bdata } = useApi<{ buildings: Building[] }>(data ? `/api/buildings${qs({ period: data.rent_period })}` : null);
+  const { data: bdata } = useApi<{ buildings: Building[]; rent_period: string }>(`/api/buildings${qs({ period })}`);
   const m = `?month=${period}`;
   return (
     <>
@@ -48,7 +47,7 @@ export function DashboardPage() {
       {loading && !data && <Loading />}
       {data && (
         <div className="flex flex-col gap-5">
-          {bdata && data && <BuildingChoice buildings={bdata.buildings} period={data.rent_period} />}
+          {bdata && <BuildingChoice buildings={bdata.buildings} period={period} rentPeriod={bdata.rent_period} />}
 
           {(data.bank_review.count > 0 || data.pending_payments > 0 || data.maintenance_discrepancies > 0) && (
             <div className="grid gap-2 sm:grid-cols-3">

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Building, Flat, OwnerOccupancy, RentDue, RentPayment, Tenancy, Tenant
-from ..periods import current_period, first_day, last_day, today, validate_period
+from ..periods import add_months, current_period, first_day, last_day, today, validate_period
 from ..security import Actor, require_user
 from ..services import property as svc
 from ..services import rent as rent_svc
@@ -62,9 +62,16 @@ def _flat_card(db: Session, f: Flat, period: str, dues_by_flat: dict[int, list[d
     }
 
 
+def rent_period_for(db: Session, period: str) -> str:
+    """The month whose rent is collected in `period`: the previous one when rent is paid the month after."""
+    return add_months(period, -rent_svc.due_months_later(db))
+
+
 def buildings_overview(db: Session, period: str) -> list[dict]:
+    """Who lives in each flat during `period`, with the status of the rent collected in it."""
     rent_svc.ensure_dues(db, period)
-    dues = db.scalars(select(RentDue).where(RentDue.period == period, RentDue.kind == "rent")).all()
+    rent_period = rent_period_for(db, period)
+    dues = db.scalars(select(RentDue).where(RentDue.period == rent_period, RentDue.kind == "rent")).all()
     by_flat: dict[int, list[dict]] = {}
     for d in rent_svc.describe_dues(db, list(dues)):
         by_flat.setdefault(d["flat_id"], []).append(d)
@@ -81,7 +88,7 @@ def list_buildings(period: str | None = None, db: Session = Depends(get_db)):
     period = validate_period(period or current_period())
     data = buildings_overview(db, period)
     db.commit()
-    return {"period": period, "buildings": data}
+    return {"period": period, "rent_period": rent_period_for(db, period), "buildings": data}
 
 
 class BuildingIn(BaseModel):

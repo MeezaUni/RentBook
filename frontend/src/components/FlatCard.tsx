@@ -26,7 +26,8 @@ export function FlatCard({ flat, code, period }: { flat: FlatCardT; code: string
           <div className="text-xs text-muted">{flat.floor_label}</div>
         </div>
         {flat.occupancy === "tenant_occupied" || flat.period_status ? (
-          <StatusBadge status={flat.period_status ?? "unpaid"} overdue={flat.is_overdue} />
+          // A tenant with no rent due for this month yet (e.g. moved in after the due day).
+          <StatusBadge status={flat.period_status ?? "no_due"} overdue={flat.is_overdue} />
         ) : (
           <StatusBadge status={flat.occupancy} />
         )}

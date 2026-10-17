@@ -80,3 +80,17 @@ def test_dashboard_same_month(client, db):
     use_same_month(db)
     make_tenancy(db, due_day=10)
     assert client.get("/api/dashboard?period=2025-11").json()["rent_period"] == "2025-11"
+
+
+def test_buildings_show_this_months_tenants_with_last_months_rent(client, db):
+    # Moved in mid-November (today is 20 Nov 2025): occupied now, though no rent is due yet.
+    make_tenancy(db, label="P-G1", start=D(2025, 11, 17), due_day=1, billing_start="2025-11")
+    old = make_tenancy(db, name="Test Tenant B", label="P-G2", due_day=10)
+    data = client.get("/api/buildings?period=2025-11").json()
+    assert data["rent_period"] == "2025-10"
+    flats = {f["label"]: f for b in data["buildings"] for f in b["flats"]}
+    assert flats["P-G1"]["occupancy"] == "tenant_occupied"
+    assert flats["P-G1"]["tenancy"]["start_date"] == "2025-11-17"
+    assert flats["P-G1"]["period_status"] is None  # nothing due for October
+    assert flats["P-G2"]["period_due_paise"] == 10_000_00  # October's rent, due 10 November
+    assert flats["P-G2"]["tenancy"]["id"] == old.id

@@ -9,10 +9,13 @@ import type { Building } from "../lib/types";
 
 interface BuildingsResp {
   period: string;
+  /** The month whose rent is collected in `period` (the previous one when rent is paid the month after). */
+  rent_period: string;
   buildings: Building[];
 }
 
-export function BuildingChoice({ buildings, period }: { buildings: Building[]; period: string }) {
+/** Tenants as of `period`; rent figures are for `rentPeriod`, the rent collected in it. */
+export function BuildingChoice({ buildings, period, rentPeriod }: { buildings: Building[]; period: string; rentPeriod: string }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {buildings.map((b) => {
@@ -29,7 +32,7 @@ export function BuildingChoice({ buildings, period }: { buildings: Building[]; p
                 {b.flats.length} flats · {occupied} let
               </div>
               <div className="mt-0.5 text-sm text-stone-700">
-                Outstanding {formatPeriod(period, true)}: <span className="money font-medium">{formatINR(outstanding)}</span>
+                Outstanding {formatPeriod(rentPeriod, true)} rent: <span className="money font-medium">{formatINR(outstanding)}</span>
               </div>
             </div>
           </Link>
@@ -70,7 +73,7 @@ export function BuildingsPage() {
       <PageHeader title="Buildings" subtitle="Choose a building to see its flats."
         actions={<MonthPicker value={period} onChange={setPeriod} />} />
       <ErrorNote error={error} />
-      {loading && !data ? <Loading /> : data && <BuildingChoice buildings={data.buildings} period={period} />}
+      {loading && !data ? <Loading /> : data && <BuildingChoice buildings={data.buildings} period={period} rentPeriod={data.rent_period} />}
     </>
   );
 }
@@ -88,7 +91,9 @@ export function BuildingPage() {
       </Link>
       <PageHeader
         title={<span className={cx("inline-flex items-center gap-2", t.accent)}><Building2 className="size-6" />{b?.name ?? "Building"}</span>}
-        subtitle={`Rent status for ${formatPeriod(period)}. Tap a flat to record a payment or see its history.`}
+        subtitle={data && data.rent_period !== period
+          ? `Tenants in ${formatPeriod(period)}, with ${formatPeriod(data.rent_period)}'s rent (due in ${formatPeriod(period)}). Tap a flat to record a payment or see its history.`
+          : `Rent status for ${formatPeriod(period)}. Tap a flat to record a payment or see its history.`}
         actions={<MonthPicker value={period} onChange={setPeriod} />}
       />
       <ErrorNote error={error} />
